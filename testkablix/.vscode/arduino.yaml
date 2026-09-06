@@ -1,3 +1,4 @@
-board: arduino:avr:nano
-sketch: Arduino/joystick-uno/joystick-uno.ino
+board: arduino:avr:uno
+sketch: Arduino/blink-uno/blink-uno.ino
 port: COM3
+output: .build

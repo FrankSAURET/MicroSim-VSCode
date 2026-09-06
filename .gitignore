@@ -9,3 +9,6 @@ test-assets/
 
 __pycache__/
 debug.log
+
+# Sorties de compilation Arduino des schemas de test (locales)
+testkablix/.build/

@@ -1,9 +1,6 @@
 # À faire
-1. ✅ J'ai retouché la description de l'application. Tu la gardes.
-1. ✅ L'ouverture automatique de la fenêtre de sortie reste et me gave. Supprime ce que tu as fais pour la refermer et fait moi un prompt pour que je modifie arduino-vscode-ide afin qu'elle ne s'ouvre plus au lancement mais toujours si on fait une action ou elle est nécessaire (vérifier, téléverser ...) → prompt sauvegardé dans le scratchpad
-1. ✅ J'ai modifié le pinout de la uno src\webview\composants\interne\uno-pinout.svg. Je n'ai mis qu'une pastille rouge sur la patte 0 (IO 0). Applique le.
-1. ✅ Crédite arduino pour les pinout arduino et raspberry pour ceux des raspberry en  ajoutant que jes les aie éventuellement modifiés.
 
+## ne pas faire pour l'instant
 ---
 
 # >>>>  v2026.9.1.48 — Items 2-4 (description, fermeture panneau, pinout, crédits)
@@ -13,11 +10,11 @@
 3. ✅ Pinout Uno retouché appliqué (une seule pastille rouge, patte 0).
 4. ✅ Crédits ajoutés aux SVG pinout : « Pinout: Arduino (modified) » et « Pinout: Raspberry Pi (modified) » insérés dans tous les fichiers (`uno-pinout.svg`, `nano pinout.svg`, `mega pinout.svg`, `pico-pinout.svg`, `picow-pinout.svg`, `pico2-pinout.svg`, `pico2w-pinout.svg`).
 5. ℹ️ Prompt pour modifier arduino-vscode-ide généré — comportement souhaité : ne pas ouvrir le panneau pendant l'analyse IntelliSense, seulement pendant les vraies compilations (Vérifier, Téléverser). Sauvegardé en scratchpad à l'attention de Frank.
+6. ✅ **`buildNumber` remis à 48** : le lot précédent portait ce numéro dans son enregistrement mais le manifeste était resté à 47. Le compteur reprend la main.
+7. ✅ **Sorties de compilation Arduino ignorées** : `testkablix/.build/` (951 ko d'objets produits par *Arduino VS Code IDE* pendant tes essais) ajouté au `.gitignore`. Aucun fichier effacé, ils restent sur le disque.
+8. ℹ️ **Traces de tes essais laissées telles quelles** : `arduino.yaml` pointe la Uno et `blink-uno`, `c_cpp_properties.json` suit — c'est le résultat normal du choix de carte, je n'y touche pas.
 
-## ne pas faire pour l'instant
-
-
-
+---
 # >>>>  v2026.9.1.47 — La fenêtre de sortie ne surgit plus au choix d'une carte
 
 1. ✅ **Choisir une carte Arduino n'ouvre plus la fenêtre de sortie** (item 1). La cause n'était pas dans Kablix : l'extension **Arduino VS Code IDE** montre son panneau **à chaque compilation**, et fabriquer la configuration IntelliSense EST une compilation (à blanc, juste pour lire les ordres du compilateur). Depuis que le lot .46 lui donne enfin le nom du croquis, cette compilation réussit — et le panneau surgit.
