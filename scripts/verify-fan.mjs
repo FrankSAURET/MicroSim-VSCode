@@ -33,6 +33,8 @@ async function bundle(entry, name) {
   return import(pathToFileURL(out).href);
 }
 
+const near = (a, b, eps = 1e-3) => Number.isFinite(a) && Math.abs(a - b) <= eps;
+
 const model = await bundle('src/webview/diagram/model.mts', 'model.mjs');
 
 // --- 1. Modèle : la vitesse suit la tension ---------------------------------
@@ -245,6 +247,76 @@ run().catch((e) => {
       check(r.name, r.ok, r.detail);
     }
   }
+}
+
+// --- 5. La charge EXISTE dans le circuit -----------------------------------
+// Le ventilateur était absent du graphe résistif : vu du voltmètre le circuit
+// était OUVERT (5 V à ses bornes, aucun courant), alors que le calcul de sa
+// vitesse le voit depuis toujours comme R = Unom/Inom. Corrigé au lot .53 :
+// les deux lectures viennent maintenant du même modèle.
+console.log('Mesure au voltmètre :');
+{
+  const p = (id, type, attrs) => ({ id, type, x: 0, y: 0, attrs: attrs ?? {} });
+  const w = (id, a, b) => ({ id, a, b });
+  const pn = (partId, pin) => ({ partId, pin });
+  // Charge branchée en direct sur une alim de laboratoire, voltmètre à ses
+  // bornes et ampèremètre dans le retour.
+  const banc = (attrs) => ({
+    parts: [
+      p('psu', 'alim', { voltage: '5', maxcurrent: '2' }),
+      p('dut', 'ventilo', attrs),
+      p('mv', 'multimetre', { mode: 'voltage' }),
+      p('ma', 'multimetre', { mode: 'current' }),
+    ],
+    wires: [
+      w('w1', pn('psu', 'V+'), pn('dut', '+')),
+      w('w2', pn('dut', '-'), pn('ma', '+')),
+      w('w3', pn('ma', 'GND'), pn('psu', 'GND')),
+      w('w4', pn('dut', '+'), pn('mv', '+')),
+      w('w5', pn('dut', '-'), pn('mv', 'GND')),
+    ],
+  });
+  // Le même montage avec une résistance à la place : c'est la référence, la
+  // charge doit se mesurer EXACTEMENT comme elle (R = Unom/Inom).
+  const bancR = (ohms) => {
+    const d = banc({});
+    d.parts = d.parts.map((x) => (x.id === 'dut'
+      ? { ...x, type: 'resistor', attrs: { value: String(ohms) } } : x));
+    d.wires = d.wires.map((x) => ({
+      ...x,
+      a: x.a.partId === 'dut' ? { ...x.a, pin: x.a.pin === '+' ? '1' : '2' } : x.a,
+      b: x.b.partId === 'dut' ? { ...x.b, pin: x.b.pin === '+' ? '1' : '2' } : x.b,
+    }));
+    return d;
+  };
+  const lire = (d) => {
+    const r = model.meterReadings(d, 5);
+    return {
+      volts: r.find((x) => x.partId === 'mv')?.value,
+      amps: r.find((x) => x.partId === 'ma')?.value,
+    };
+  };
+  const nominal = lire(banc({ voltage: '5', current: '0.85' }));
+  const ref = lire(bancR(5 / 0.85));
+  check('le voltmètre lit une tension à ses bornes, pas l’alim entière',
+    nominal.volts !== null && nominal.volts > 0 && nominal.volts < 5,
+    `${nominal.volts?.toFixed(3)} V`);
+  check('l’ampèremètre en série mesure enfin un courant',
+    nominal.amps !== null && nominal.amps > 0, `${(nominal.amps * 1000).toFixed(1)} mA`);
+  check('mesurée comme la résistance équivalente R = Unom/Inom (5,88 Ω)',
+    near(nominal.volts, ref.volts, 1e-3) && near(nominal.amps, ref.amps, 1e-6),
+    `${nominal.volts?.toFixed(3)} V / ${ref.volts?.toFixed(3)} V`);
+  // Doubler le courant nominal, c'est diviser la résistance par deux : plus de
+  // courant appelé et moins de tension à ses bornes (l'alim n'est pas parfaite).
+  const gourmande = lire(banc({ voltage: '5', current: '1.7' }));
+  check('deux fois plus gourmande : deux fois moins de résistance, donc plus de courant',
+    gourmande.amps > nominal.amps && gourmande.volts < nominal.volts,
+    `${(gourmande.amps * 1000).toFixed(1)} mA vs ${(nominal.amps * 1000).toFixed(1)} mA`);
+  // Une charge débranchée ne mesure rien : le circuit est vraiment ouvert.
+  const enLair = banc({ voltage: '5', current: '0.85' });
+  enLair.wires = enLair.wires.filter((x) => x.id !== 'w1');
+  check('débranchée : rien à mesurer', lire(enLair).amps === null || lire(enLair).amps === 0,
+    `${lire(enLair).amps}`);
 }
 
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);

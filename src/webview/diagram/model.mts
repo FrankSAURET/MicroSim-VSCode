@@ -831,6 +831,19 @@ function computeResistiveGraph(
       const b = nets.netOf({ partId: part.id, pin: 'GND' });
       link(a, b, { ohms: METER_OHMS, partId: part.id });
       link(b, a, { ohms: METER_OHMS, partId: part.id });
+    } else if (kind === 'fan' || kind === 'motor') {
+      // Ventilateur, moteur : le calcul de leur vitesse les voit DEPUIS
+      // TOUJOURS comme une résistance R = Unom/Inom (fanSpeed, motorStates)…
+      // mais ils manquaient au graphe résistif, donc vus du voltmètre le
+      // circuit était OUVERT : 5 V à leurs bornes, aucun courant, et
+      // l'ampèremètre en série ne mesurait rien (Frank, lot .51). Même
+      // résistance des deux côtés : un seul modèle, deux lectures cohérentes.
+      const pins = kind === 'fan' ? ['+', '-'] : ['1', '2'];
+      const a = nets.netOf({ partId: part.id, pin: rolePin(part.type, pins[0]) });
+      const b = nets.netOf({ partId: part.id, pin: rolePin(part.type, pins[1]) });
+      const ohms = dcLoadOhms(part);
+      link(a, b, { ohms, partId: part.id });
+      link(b, a, { ohms, partId: part.id });
     } else if (kind === 'potentiometer') {
       // Un potentiomètre EST une résistance à prise médiane : la piste entière
       // relie VCC à GND, et le curseur la coupe en deux. Sans ces deux arêtes
@@ -1574,6 +1587,20 @@ export function meterReadings(
  * Copie du schéma où UN multimètre repasse en voltmètre — donc où ses deux
  * prises redeviennent deux nœuds distincts. Les autres n'y touchent pas.
  */
+/** Le même graphe résistif, privé des arêtes d'un composant : il est OUVERT.
+ *  Sert à analyser le circuit d'une charge sans passer par la charge elle-même. */
+function withoutPart(
+  adj: Map<string, ResistiveEdge[]>,
+  partId: string
+): Map<string, ResistiveEdge[]> {
+  const out = new Map<string, ResistiveEdge[]>();
+  for (const [net, edges] of adj) {
+    const reste = edges.filter((e) => e.partId !== partId);
+    if (reste.length > 0) out.set(net, reste);
+  }
+  return out;
+}
+
 function openMeter(diagram: Diagram, partId: string): Diagram {
   return {
     ...diagram,
@@ -1636,7 +1663,13 @@ function dcLoadCircuit(
   psuVolts?: (partId: string) => number | null,
   liveOhms?: (part: Part) => number | null
 ): (FanCircuit & { hiNet: string; loNet: string; nets: Nets }) | null {
-  const { nets, adj, digitalNets, vccNets, gndNets } = resistiveGraph(diagram, liveOhms);
+  const { nets, adj: full, digitalNets, vccNets, gndNets } = resistiveGraph(diagram, liveOhms);
+  // La charge analysée est ELLE-MÊME une arête du graphe depuis le lot .53
+  // (c'est ce qui la rend mesurable au voltmètre). Il faut donc l'ouvrir le
+  // temps de chercher sa propre alimentation : sinon le parcours redescend par
+  // le moteur, trouve une masse par sa borne opposée, et un moteur câblé à
+  // l'envers semblait alimenté (`ohms` incluait sa propre résistance).
+  const adj = withoutPart(full, partId);
   const reached: { net?: string; drop?: number; limitAmps?: number } = {};
   const sink: { net?: string; drop?: number; limitAmps?: number } = {};
   const hiNet = nets.netOf({ partId, pin: hiPin });
@@ -1965,6 +1998,18 @@ function relayPins(part: Part): { b1: string; b2: string; com: string; nf: strin
     };
   }
   return { b1: 'B1', b2: 'B2', com: 'Com.1', nf: 'NF', no: 'NO' };
+}
+
+/**
+ * Résistance (Ω) d'une charge continue rotative — ventilateur ou moteur — vue
+ * du circuit : R = Unom/Inom, exactement le modèle dont fanSpeed et motorStates
+ * tirent déjà la vitesse. Un moteur à l'arrêt ne présente que la résistance de
+ * son bobinage ; on garde la valeur nominale, seule connue de l'utilisateur.
+ */
+function dcLoadOhms(part: Part): number {
+  const volts = numAttr(part, 'voltage', 5);
+  const amps = numAttr(part, 'current', part.type === 'ventilo' ? 0.85 : 0.2);
+  return Math.max(0.1, volts / amps);
 }
 
 /** Résistance de la bobine (Ω) d'après sa tension nominale, à puissance constante. */

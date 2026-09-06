@@ -1,10 +1,21 @@
 # À faire
 1. v2026.9.2 publiée et changelog modifié par moi
-1. rendre Ventilateur, moteur à courant continu et vibreur mesurable au voltmètre.
 1. Affiner le modele analogique des transistors : prise en compte de rdson, du vgsth, Ajouter une propriété Vcesat pour les transistor bipolaires et la prendre en compte (un voltmetre affiche la bonne valeur) pas de zone linéaire.
 ## ne pas faire pour l'instant
 ---
 
+# >>>>  v2026.9.2.53 — Le ventilateur et le moteur ne sont plus des trous dans le circuit
+
+1. ✅ **Le ventilateur et le moteur à courant continu se mesurent au voltmètre** (item 1). Ils avaient pourtant depuis toujours un modèle électrique — `fanSpeed` et `motorStates` les voient comme une résistance **R = Unom/Inom** — mais ce modèle vivait à côté du graphe résistif, pas dedans. Résultat : vu du voltmètre le circuit était **ouvert**, l'appareil lisait les 5 V de l'alimentation entière et l'ampèremètre en série ne mesurait **rien** (`null`), pendant que le moteur tournait à 199 mA à l'écran.
+2. ✅ **Une arête chacun dans le graphe résistif** ([model.mts](src/webview/diagram/model.mts)), de la même valeur que celle du calcul de vitesse (`dcLoadOhms`) : un seul modèle pour deux lectures, elles ne peuvent plus diverger.
+3. ✅ **Il fallait ouvrir la charge pour analyser sa propre alimentation.** `dcLoadCircuit` cherche, depuis une borne, le chemin vers une source et depuis l'autre le chemin vers la masse. Avec la nouvelle arête, ce parcours **redescendait par le moteur lui-même** : un moteur câblé à l'envers semblait alors alimenté (le banc `verify:motor` l'a attrapé tout de suite — 33 % de régime au lieu du plein). Le graphe est donc privé des arêtes de la charge analysée (`withoutPart`), comme l'ampèremètre est rouvert pour se mesurer lui-même.
+4. ✅ **Les chiffres**, sur une alim de 5 V capable de 2 A : ventilateur 5 V/0,85 A (5,88 Ω) → **3,685 V** à ses bornes et **626,4 mA** ; moteur 5 V/0,2 A (25 Ω) → **4,613 V** et **184,5 mA**. Dans les deux cas **exactement** ce que donne une résistance de même valeur posée au même endroit — c'est le contrôle qui compte, il n'y a plus deux physiques.
+5. ✅ **Dix contrôles neufs**, cinq dans `verify:fan` et cinq dans `verify:motor` : une tension aux bornes (et pas l'alim entière), un courant non nul, l'égalité stricte avec la résistance équivalente, l'effet du courant nominal (deux fois plus gourmand = deux fois moins résistant), et le circuit vraiment ouvert quand la charge est débranchée.
+6. ✅ **Aucune régression** : suite complète à **104/104**, typecheck sans erreur.
+7. ⏳ **Le vibreur n'existe pas** dans le catalogue — aucun composant de ce type, ni dans la bibliothèque intégrée ni dans `kablix_components`. Il n'y avait donc rien à rendre mesurable. À créer le jour où tu le demandes : électriquement c'est un moteur (même `kind`), seul le dessin et l'animation changent.
+8. ℹ️ **Un écart qui préexiste à ce lot** : le voltmètre lit 4,613 V là où `motorStates` annonce 4,980 V. Le voltmètre compte l'impédance interne de l'alim (`RAIL_OHMS`, 1 Ω), le calcul de vitesse non. Rien à voir avec les arêtes ajoutées — mais à trancher un jour, il faudra le même chiffre des deux côtés.
+
+---
 # >>>>  v2026.9.2.52 — Le potentiomètre existe enfin dans le circuit
 
 1. ✅ **Le potentiomètre est une résistance à prise médiane, plus une valeur en l'air** (item 1). Jusqu'ici sa position partait **directement** sur l'entrée analogique du microcontrôleur (`setAnalog`), sans jamais exister comme tension dans le montage : un voltmètre posé sur le curseur lisait **zéro**, et l'alimentation ne débitait rien — c'est le premier composant qu'un débutant sonde, et il ne répondait pas.
