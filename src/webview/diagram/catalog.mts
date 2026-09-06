@@ -526,7 +526,13 @@ const TRANSISTOR_PROPS: readonly PropDef[] = [
   { attr: 'd', label: 'Drain on pin', kind: 'select', options: ['1', '2', '3'], showIf: MOS },
   { attr: 's', label: 'Source on pin', kind: 'select', options: ['1', '2', '3'], showIf: MOS },
   { attr: 'gain', label: 'Current gain (β)', kind: 'number', min: 0.1, step: 0.1, showIf: BIPOLAIRE },
+  // Ce qui reste AUX BORNES du composant passant : une chute fixe pour un
+  // bipolaire saturé (Vce(sat)), une résistance pour un canal MOSFET ouvert
+  // (Rds(on)) — d'où deux propriétés et non une seule.
+  { attr: 'vcesat', label: 'Vce(sat) (V)', kind: 'number', min: 0.01, max: 5, step: 0.01, showIf: BIPOLAIRE },
   { attr: 'rdson', label: 'Rds(on) (Ω)', kind: 'number', min: 0.001, max: 100, step: 0.01, showIf: MOS },
+  // Au-dessous du seuil, la grille ne fait rien : le canal reste fermé.
+  { attr: 'vgsth', label: 'Vgs(th) (V)', kind: 'number', min: 0.1, max: 10, step: 0.1, showIf: MOS },
   // Inscription du boîtier : trois lignes visibles d'emblée (une référence tient
   // rarement sur deux), le champ reste libre — chaque ligne saisie est une ligne
   // écrite sur la face plate.
@@ -930,7 +936,7 @@ export const CATALOG: readonly PartDef[] = [
     attrs: {
       pkg: 'to92', symbol: 'npn', schema: 'npn1', text: '?', named: '1', ref: '',
       e: '1', b: '2', c: '3', g: '1', d: '2', s: '3',
-      gain: '100', rdson: '0.5', vcemax: '40', icmax: '0.6',
+      gain: '100', vcesat: '0.2', rdson: '0.5', vgsth: '2.1', vcemax: '40', icmax: '0.6',
     },
     props: CUSTOM_TRANSISTOR_PROPS,
   },

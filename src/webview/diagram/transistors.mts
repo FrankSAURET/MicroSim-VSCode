@@ -69,8 +69,12 @@ export interface TransistorRef {
   vcemax: number;
   /** Courant maximal : Ic pour un bipolaire, Id pour un MOSFET (A). */
   icmax: number;
+  /** Tension collecteur-émetteur qui subsiste à saturation (V) — bipolaire seulement. */
+  vcesat?: number;
   /** Résistance à l'état passant (Ω) — MOSFET seulement. */
   rdson?: number;
+  /** Tension de seuil de grille (V) — MOSFET seulement. */
+  vgsth?: number;
   /** Modèle venu de la liste de Frank : mis en évidence dans le sélecteur. */
   nouveau?: boolean;
 }
@@ -89,37 +93,37 @@ export const TRANSISTOR_REFS: readonly TransistorRef[] = [
   // interne. Pour toutes les autres références, c'est le symbole GÉNÉRIQUE qui
   // est posé : NPN1 relie ses électrodes aux pattes dans l'ordre E-B-C et
   // mentirait sur le brochage de la moitié d'entre elles (les BC5xx sont C-B-E).
-  { ref: 'PN2222A', text: 'PN\n2222A', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 35, vcemax: 40, icmax: 0.6 },
-  { ref: '2N3904', text: '2N\n3904', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.2 },
-  { ref: '2N4401', text: '2N\n4401', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.6 },
-  { ref: '2N5551', text: '2N\n5551', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 80, vcemax: 160, icmax: 0.6 },
-  { ref: 'BC337', text: 'BC\n337', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 45, icmax: 0.8 },
-  { ref: 'S8050', text: 'S\n8050', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 120, vcemax: 25, icmax: 0.7 },
-  { ref: 'BC547', text: 'BC\n547', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 45, icmax: 0.1 },
-  { ref: 'BC548', text: 'BC\n548', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 30, icmax: 0.1 },
-  { ref: 'BC639', text: 'BC\n639', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: ECB, gain: 63, vcemax: 80, icmax: 1, nouveau: true },
-  { ref: 'MPSA42', text: 'MPS\nA42', symbol: 'npn', schema: 'npn1', pkg: 'to92', pins: EBC, gain: 25, vcemax: 300, icmax: 0.5, nouveau: true },
-  { ref: 'BD911', text: 'BD911', symbol: 'npn', schema: 'npn-generique', pkg: 'to220', pins: BCE, gain: 5, vcemax: 100, icmax: 15, nouveau: true },
+  { ref: 'PN2222A', text: 'PN\n2222A', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 35, vcemax: 40, icmax: 0.6, vcesat: 0.3 },
+  { ref: '2N3904', text: '2N\n3904', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.2, vcesat: 0.2 },
+  { ref: '2N4401', text: '2N\n4401', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.6, vcesat: 0.4 },
+  { ref: '2N5551', text: '2N\n5551', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 80, vcemax: 160, icmax: 0.6, vcesat: 0.2 },
+  { ref: 'BC337', text: 'BC\n337', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 45, icmax: 0.8, vcesat: 0.7 },
+  { ref: 'S8050', text: 'S\n8050', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: EBC, gain: 120, vcemax: 25, icmax: 0.7, vcesat: 0.5 },
+  { ref: 'BC547', text: 'BC\n547', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 45, icmax: 0.1, vcesat: 0.25 },
+  { ref: 'BC548', text: 'BC\n548', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 30, icmax: 0.1, vcesat: 0.25 },
+  { ref: 'BC639', text: 'BC\n639', symbol: 'npn', schema: 'npn-generique', pkg: 'to92', pins: ECB, gain: 63, vcemax: 80, icmax: 1, vcesat: 0.5, nouveau: true },
+  { ref: 'MPSA42', text: 'MPS\nA42', symbol: 'npn', schema: 'npn1', pkg: 'to92', pins: EBC, gain: 25, vcemax: 300, icmax: 0.5, vcesat: 0.5, nouveau: true },
+  { ref: 'BD911', text: 'BD911', symbol: 'npn', schema: 'npn-generique', pkg: 'to220', pins: BCE, gain: 5, vcemax: 100, icmax: 15, vcesat: 0.5, nouveau: true },
   // --- PNP ---
-  { ref: '2N2907A', text: '2N\n2907A', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 60, icmax: 0.6 },
-  { ref: '2N3906', text: '2N\n3906', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.2 },
-  { ref: '2N4403', text: '2N\n4403', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.6 },
-  { ref: '2N5401', text: '2N\n5401', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 60, vcemax: 150, icmax: 0.6 },
-  { ref: 'BC327', text: 'BC\n327', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 45, icmax: 0.8 },
-  { ref: 'S8550', text: 'S\n8550', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 120, vcemax: 25, icmax: 0.7 },
-  { ref: 'BC557', text: 'BC\n557', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 45, icmax: 0.1 },
-  { ref: 'BC558', text: 'BC\n558', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 30, icmax: 0.1 },
-  { ref: 'BC640', text: 'BC\n640', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: ECB, gain: 100, vcemax: 50, icmax: 1, nouveau: true },
-  { ref: 'MPSA92', text: 'MPS\nA92', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 25, vcemax: 300, icmax: 0.5, nouveau: true },
-  { ref: 'BD912', text: 'BD912', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to220', pins: BCE, gain: 5, vcemax: 100, icmax: 15, nouveau: true },
+  { ref: '2N2907A', text: '2N\n2907A', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 60, icmax: 0.6, vcesat: 0.4 },
+  { ref: '2N3906', text: '2N\n3906', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.2, vcesat: 0.25 },
+  { ref: '2N4403', text: '2N\n4403', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 40, icmax: 0.6, vcesat: 0.4 },
+  { ref: '2N5401', text: '2N\n5401', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 60, vcemax: 150, icmax: 0.6, vcesat: 0.5 },
+  { ref: 'BC327', text: 'BC\n327', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 100, vcemax: 45, icmax: 0.8, vcesat: 0.7 },
+  { ref: 'S8550', text: 'S\n8550', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 120, vcemax: 25, icmax: 0.7, vcesat: 0.5 },
+  { ref: 'BC557', text: 'BC\n557', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 45, icmax: 0.1, vcesat: 0.25 },
+  { ref: 'BC558', text: 'BC\n558', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: CBE, gain: 200, vcemax: 30, icmax: 0.1, vcesat: 0.25 },
+  { ref: 'BC640', text: 'BC\n640', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: ECB, gain: 100, vcemax: 50, icmax: 1, vcesat: 0.5, nouveau: true },
+  { ref: 'MPSA92', text: 'MPS\nA92', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to92', pins: EBC, gain: 25, vcemax: 300, icmax: 0.5, vcesat: 0.5, nouveau: true },
+  { ref: 'BD912', text: 'BD912', symbol: 'pnp', schema: 'pnp-generique', pkg: 'to220', pins: BCE, gain: 5, vcemax: 100, icmax: 15, vcesat: 0.5, nouveau: true },
   // --- Darlington : deux transistors en cascade dans le même boîtier ---
-  { ref: 'BC517', text: 'BC\n517', symbol: 'darlington-npn', schema: 'darlington-npn', pkg: 'to92', pins: CBE, gain: 30000, vcemax: 30, icmax: 0.4, nouveau: true },
-  { ref: 'BC516', text: 'BC\n516', symbol: 'darlington-pnp', schema: 'darlington-pnp', pkg: 'to92', pins: CBE, gain: 30000, vcemax: 30, icmax: 0.4, nouveau: true },
+  { ref: 'BC517', text: 'BC\n517', symbol: 'darlington-npn', schema: 'darlington-npn', pkg: 'to92', pins: CBE, gain: 30000, vcemax: 30, icmax: 0.4, vcesat: 0.9, nouveau: true },
+  { ref: 'BC516', text: 'BC\n516', symbol: 'darlington-pnp', schema: 'darlington-pnp', pkg: 'to92', pins: CBE, gain: 30000, vcemax: 30, icmax: 0.4, vcesat: 0.9, nouveau: true },
   // --- MOSFET canal N : commandés en tension, grille isolée (gain sans objet) ---
   // Le BS170 est le piège du lot : même boîtier que le 2N7000, brochage INVERSÉ
   // (drain sur la patte 1, source sur la 3) — brochage donné par la liste de Frank.
-  { ref: 'BS170', text: 'BS\n170', symbol: 'nmos', schema: 'nmos-d', pkg: 'to92', pins: DGS, gain: 0, vcemax: 60, icmax: 0.5, rdson: 2.5, nouveau: true },
-  { ref: 'IRF530', text: 'IRF530', symbol: 'nmos', schema: 'nmos-d', pkg: 'to220', pins: GDS, gain: 0, vcemax: 100, icmax: 14, rdson: 0.16, nouveau: true },
+  { ref: 'BS170', text: 'BS\n170', symbol: 'nmos', schema: 'nmos-d', pkg: 'to92', pins: DGS, gain: 0, vcemax: 60, icmax: 0.5, rdson: 2.5, vgsth: 2.1, nouveau: true },
+  { ref: 'IRF530', text: 'IRF530', symbol: 'nmos', schema: 'nmos-d', pkg: 'to220', pins: GDS, gain: 0, vcemax: 100, icmax: 14, rdson: 0.16, vgsth: 3.5, nouveau: true },
 ];
 
 /** Références « personnalisées » : tout reste réglable dans les propriétés. */
@@ -227,7 +231,8 @@ export function transistorAttrs(choice: string, f: TransistorFilter): Record<str
       ref: known.ref, text: known.text, symbol: known.symbol, schema: known.schema, pkg: known.pkg,
       ...pinAttrs(known.pins),
       gain: String(known.gain), vcemax: String(known.vcemax), icmax: String(known.icmax),
-      rdson: String(known.rdson ?? ''),
+      vcesat: String(known.vcesat ?? ''), rdson: String(known.rdson ?? ''),
+      vgsth: String(known.vgsth ?? ''),
     };
   }
   const symbol = customRefType(choice);
@@ -238,7 +243,11 @@ export function transistorAttrs(choice: string, f: TransistorFilter): Record<str
     ...pinAttrs(mos ? GDS : EBC),
     gain: mos ? '0' : f.gain || (isDarlingtonType(symbol) ? '10000' : '100'),
     vcemax: f.vcemax || '40', icmax: f.icmax || '0.6',
+    // Un prototype générique part des valeurs typiques de sa famille : le
+    // darlington traîne deux jonctions, donc deux fois la chute d'un simple.
+    vcesat: mos ? '' : isDarlingtonType(symbol) ? '0.9' : '0.2',
     rdson: mos ? f.rdson || '0.5' : '',
+    vgsth: mos ? '2.1' : '',
   };
 }
 

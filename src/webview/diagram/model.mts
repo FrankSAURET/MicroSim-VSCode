@@ -175,6 +175,10 @@ export interface ActiveBridge {
   b: string;
   /** Tension perdue dans le pont (V) : Vce de saturation, 0 pour un contact. */
   drop?: number;
+  /** Résistance du pont fermé (Ω) : Rds(on) d'un MOSFET. 0 par défaut — un
+   *  contact de relais et un bipolaire saturé se traversent sans résistance
+   *  (la perte d'un bipolaire est son `drop`). */
+  ohms?: number;
   /** Courant maximal transmis (A) : Gain × Ib pour un transistor. */
   limitAmps?: number;
   /** Le courant ne passe que de `a` vers `b` (transistor) ; sinon les deux sens. */
@@ -192,7 +196,7 @@ let activeBridges: readonly ActiveBridge[] = [];
 
 /** Signature d'une liste de ponts (comparaison bon marché entre deux tours). */
 export function bridgeSignature(list: readonly ActiveBridge[]): string {
-  return list.map((b) => `${b.partId}:${b.a}>${b.b}:${b.limitAmps ?? ''}`).sort().join('|');
+  return list.map((b) => `${b.partId}:${b.a}>${b.b}:${b.limitAmps ?? ''}:${b.ohms ?? ''}`).sort().join('|');
 }
 
 export function setActiveBridges(list: readonly ActiveBridge[]): void {
@@ -878,7 +882,7 @@ function computeResistiveGraph(
   for (const b of activeBridges) {
     const a = nets.netOf({ partId: b.partId, pin: b.a });
     const k = nets.netOf({ partId: b.partId, pin: b.b });
-    const edge = { ohms: 0, partId: b.partId, drop: b.drop, limitAmps: b.limitAmps };
+    const edge = { ohms: b.ohms ?? 0, partId: b.partId, drop: b.drop, limitAmps: b.limitAmps };
     if (b.oneWay) {
       link(a, k, { ...edge, oneWay: true, forward: true });
       link(k, a, { ...edge, oneWay: true, forward: false });
@@ -1905,8 +1909,12 @@ const VCE_SAT = 0.2;
 const VBE_DARLINGTON = 1.4;
 /** Darlington saturé : le Vbe du second transistor s'ajoute à sa saturation. */
 const VCE_SAT_DARLINGTON = 0.9;
-/** MOSFET passant : sa chute est celle de Rds(on), négligeable ici. */
-const VDS_ON = 0;
+/** Rds(on) retenu quand le composant n'en déclare pas (Ω) : petit MOSFET de
+ *  signal. Le canal passant EST une résistance, pas une chute fixe. */
+const RDSON_DEFAULT = 0.5;
+/** Tension de seuil de grille par défaut (V) : au-dessous, le canal reste
+ *  fermé. Valeur typique d'un MOSFET de logique (BS170, 2N7000). */
+const VGSTH_DEFAULT = 2.1;
 /** Courant de base retenu quand la base est câblée SANS résistance (A) : la
  *  maille ne limite rien, le transistor sature à coup sûr (et chaufferait). */
 const BASE_DIRECT_AMPS = 0.1;
@@ -1931,8 +1939,15 @@ export interface TransistorState {
    *  transistor sort de la saturation et le montage aval ne marche plus.
    *  Sur un MOSFET, c'est simplement son courant de drain maximal. */
   maxCollectorAmps: number;
-  /** Tension perdue dans le composant passant (V) : Vce de saturation. */
+  /** Tension perdue dans le composant passant (V) : Vce de saturation d'un
+   *  bipolaire. Un MOSFET n'en a pas : sa chute est I·Rds(on), donc `ohms`. */
   drop: number;
+  /** Résistance du composant passant (Ω) : Rds(on) d'un MOSFET, 0 pour un
+   *  bipolaire saturé (sa perte est le `drop`). */
+  ohms: number;
+  /** MOSFET : tension réellement présente sur la grille par rapport à la source
+   *  (V). C'est elle qui doit dépasser Vgs(th) pour ouvrir le canal. */
+  gateVolts?: number;
 }
 
 /** Ce qui empêche un relais de coller. */
@@ -2048,23 +2063,46 @@ export function transistorStates(
     // Deux jonctions en série dans un darlington : il lui faut 1,4 V sur la base
     // pour conduire, et il ne descend jamais sous 0,9 V entre C et E.
     const vbe = darlington ? VBE_DARLINGTON : VBE_ON;
-    const drop = mos ? VDS_ON : darlington ? VCE_SAT_DARLINGTON : VCE_SAT;
+    // Un MOSFET ne perd pas de tension fixe : son canal passant est une
+    // RÉSISTANCE (Rds(on)), la chute vaut donc I·Rds(on) et se calcule toute
+    // seule dans le graphe résistif. Un bipolaire, lui, garde son Vce(sat) —
+    // désormais réglable par composant (attribut `vcesat`), le darlington
+    // partant de 0,9 V (deux jonctions) et le simple de 0,2 V.
+    //
+    // Le défaut de FAMILLE prime sur celui du catalogue : basculer le symbole en
+    // darlington sans repasser par le sélecteur laisse l'attribut du catalogue
+    // (0,2 V) sur l'instance, et le composant mentirait d'une jonction entière.
+    const vcesatDefaut = darlington ? VCE_SAT_DARLINGTON : VCE_SAT;
+    const drop = mos
+      ? 0
+      : darlington && (part.attrs?.vcesat ?? '') === ''
+        ? vcesatDefaut
+        : numAttr(part, 'vcesat', vcesatDefaut);
+    const ohms = mos ? Math.max(0, numAttr(part, 'rdson', RDSON_DEFAULT)) : 0;
     const level = (pin: string): Level =>
       netLevel(diagram, nets, nets.netOf({ partId: part.id, pin }), readPin);
     const on = npn
       ? level(pins.b) === 1 && level(pins.e) === 0
       : level(pins.b) === 0 && level(pins.e) === 1;
     if (!on) {
-      out.push({ partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop });
+      out.push({ partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop, ohms });
       continue;
     }
     // MOSFET : la grille est ISOLÉE, rien n'y entre — pas de maille de base, pas
-    // de gain. La tension suffit à ouvrir le canal, qui laisse alors passer
-    // jusqu'au courant de drain maximal du composant.
+    // de gain. Mais le niveau logique ne suffit pas à décider : la TENSION de
+    // grille doit dépasser Vgs(th). Un pont diviseur, une pile de diodes ou une
+    // sortie 3,3 V sur un MOSFET de puissance donnent bien un « 1 » logique sans
+    // ouvrir le canal — c'est exactement le piège que le modèle ignorait.
     if (mos) {
+      const gate = mosGateVolts(diagram, g, part, pins, npn, vcc, readPin, psuVolts);
+      const seuil = numAttr(part, 'vgsth', VGSTH_DEFAULT);
+      // Faute de tension calculable (grille en l'air côté résistif), on garde le
+      // verdict logique : le modèle ne devient jamais plus sévère qu'avant.
+      const passe = gate === null || Math.abs(gate) >= seuil;
       out.push({
-        partId: part.id, npn, mos, on: true, baseAmps: 0,
-        maxCollectorAmps: numAttr(part, 'icmax', 0.5), drop,
+        partId: part.id, npn, mos, on: passe, baseAmps: 0,
+        maxCollectorAmps: passe ? numAttr(part, 'icmax', 0.5) : 0,
+        drop, ohms, gateVolts: gate ?? undefined,
       });
       continue;
     }
@@ -2090,10 +2128,47 @@ export function transistorStates(
     const gain = numAttr(part, 'gain', 100);
     out.push({
       partId: part.id, npn, mos, on: baseAmps > 0, baseAmps,
-      maxCollectorAmps: gain * baseAmps, drop,
+      maxCollectorAmps: gain * baseAmps, drop, ohms,
     });
   }
   return out;
+}
+
+/**
+ * Tension grille-source d'un MOSFET (V), ou null si elle n'est pas calculable
+ * (grille en l'air dans le graphe résistif).
+ *
+ * Le niveau logique de la grille ne dit pas si le canal s'ouvre : un pont
+ * diviseur, une diode en série ou une sortie 3,3 V attaquant un MOSFET de
+ * puissance donnent un « 1 » franc sans jamais atteindre Vgs(th). On mesure
+ * donc la vraie tension, par le même théorème de Thévenin que le voltmètre —
+ * grille ET source, car c'est leur DIFFÉRENCE qui commande le canal (un MOSFET
+ * en source suiveuse ne conduit pas parce que sa grille est à 5 V).
+ */
+function mosGateVolts(
+  diagram: Diagram,
+  g: ResistiveGraph,
+  part: Part,
+  pins: { e: string; b: string; c: string }, // MOSFET : b = grille, e = source
+  npn: boolean,
+  vcc: number,
+  readPin: (name: string) => boolean,
+  psuVolts?: (partId: string) => number | null
+): number | null {
+  // Les sorties de carte sont vues par leur NIVEAU du moment : c'est ce que
+  // readPin sait dire, et c'est ce dont le pont diviseur de grille dépend.
+  const drive = (pin: string): PinDrive => (readPin(pin) ? 'high' : 'low');
+  const { sources } = circuitSources(
+    diagram, vcc, g.nets, g.vccNets, g.gndNets, drive, psuVolts
+  );
+  if (sources.length === 0) return null;
+  const sourceNets = new Set(sources.map((x) => x.net));
+  const gate = theveninNode(g.nets.netOf({ partId: part.id, pin: pins.b }), sources, sourceNets, g.adj);
+  const src = theveninNode(g.nets.netOf({ partId: part.id, pin: pins.e }), sources, sourceNets, g.adj);
+  if (!gate || !src) return null;
+  // Canal N : Vgs positif ouvre. Canal P : c'est l'inverse, on rend la valeur
+  // dans le sens qui ouvre pour que l'appelant compare toujours à |Vgs| ≥ seuil.
+  return npn ? gate.volts - src.volts : src.volts - gate.volts;
 }
 
 /**
@@ -2239,6 +2314,7 @@ export function commandedBridges(
       a: st.npn ? pins.c : pins.e,
       b: st.npn ? pins.e : pins.c,
       drop: st.drop,
+      ohms: st.ohms,
       limitAmps: st.maxCollectorAmps,
       oneWay: true,
     });

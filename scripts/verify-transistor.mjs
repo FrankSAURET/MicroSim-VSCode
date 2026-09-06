@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build as esbuild } from 'esbuild';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -798,6 +798,135 @@ rows.push({
 	ok: sansCouleur.length === 0,
 	detail: `symboles dont une lettre n a pas de couleur propre : ${sansCouleur.join(', ')}`,
 });
+
+// --- Modèle analogique : ce qu'un VOLTMÈTRE lit aux bornes (lot .54) ---------
+// Un transistor passant n'est pas un fil : il reste quelque chose à ses bornes.
+// Et ce « quelque chose » n'est pas de même nature selon la famille — c'est tout
+// l'objet de ce lot :
+//  - bipolaire saturé : une CHUTE FIXE (Vce(sat)), indépendante du courant ;
+//  - MOSFET passant : une RÉSISTANCE (Rds(on)), donc une chute qui suit I ;
+//  - et la grille d'un MOSFET ne suffit pas à être « au 1 » logique : sa tension
+//    doit dépasser Vgs(th), sinon le canal reste fermé.
+{
+	writeFileSync(join(CACHE, 'model.mjs'), `
+export { meterReadings, commandedBridges, setActiveBridges } from '../../src/webview/diagram/model.mjs';
+`);
+	const modelFile = join(CACHE, 'model.bundle.mjs');
+	await esbuild({
+		entryPoints: [join(CACHE, 'model.mjs')],
+		outfile: modelFile, bundle: true, platform: 'node', format: 'esm', logLevel: 'silent',
+		loader: { '.svg': 'text', '.webp': 'dataurl' }, absWorkingDir: ROOT,
+	});
+	const M = await import(pathToFileURL(modelFile).href);
+
+	const P = (id, type, attrs) => ({ id, type, x: 0, y: 0, attrs: attrs ?? {} });
+	const W = (id, a, b) => ({ id, a, b });
+	const pin = (partId, p) => ({ partId, pin: p });
+	// Commutation basse : alim 5 V → charge → transistor → masse. Le voltmètre est
+	// AUX BORNES du transistor, une broche de la carte commande sa base/grille.
+	const banc = (attrs, charge, mos) => {
+		const hi = mos ? 'D' : 'C', lo = mos ? 'S' : 'E', ctrl = mos ? 'G' : 'B';
+		return {
+			parts: [
+				P('uno', 'uno'), P('psu', 'alim', { voltage: '5', maxcurrent: '1' }),
+				P('r1', 'resistor', { value: charge }), P('rb', 'resistor', { value: '1000' }),
+				P('q1', 'transistor', attrs), P('mv', 'multimetre', { mode: 'voltage' }),
+			],
+			wires: [
+				W('w1', pin('psu', 'V+'), pin('r1', '1')), W('w2', pin('r1', '2'), pin('q1', hi)),
+				W('w3', pin('q1', lo), pin('psu', 'GND')),
+				W('w4', pin('uno', '8'), pin('rb', '1')), W('w5', pin('rb', '2'), pin('q1', ctrl)),
+				W('w6', pin('q1', hi), pin('mv', '+')), W('w7', pin('q1', lo), pin('mv', 'GND')),
+			],
+		};
+	};
+	// Les ponts commandés ne sortent pas du graphe résistif : c'est la boucle de
+	// simulation qui les y pousse. Le banc fait donc le même chaînage.
+	const lire = (d, haut) => {
+		const readPin = (n) => haut && String(n) === '8';
+		const drive = (n) => (readPin(n) ? 'high' : 'low');
+		M.setActiveBridges(M.commandedBridges(d, readPin, 5));
+		const v = M.meterReadings(d, 5, drive).find((x) => x.partId === 'mv')?.value;
+		M.setActiveBridges([]);
+		return v;
+	};
+	const proche = (a, b, tol) => a !== null && a !== undefined && Math.abs(a - b) <= tol;
+
+	const NPN = {
+		pkg: 'to92', symbol: 'npn', named: '1', e: '1', b: '2', c: '3',
+		gain: '100', vcemax: '40', icmax: '0.6',
+	};
+	const vSat = lire(banc({ ...NPN, vcesat: '0.2' }, '100', false), true);
+	rows.push({
+		name: 'bipolaire saturé : le voltmètre lit Vce(sat), pas 0 V',
+		ok: proche(vSat, 0.2, 0.005), detail: `${vSat} V`,
+	});
+	const vSat7 = lire(banc({ ...NPN, vcesat: '0.7' }, '100', false), true);
+	rows.push({
+		name: 'bipolaire : la lecture SUIT la propriété Vce(sat)',
+		ok: proche(vSat7, 0.7, 0.005), detail: `${vSat7} V`,
+	});
+	// C'est ce qui distingue une chute d'une résistance : dix fois plus de courant
+	// et pourtant la même tension aux bornes.
+	const vSatCharge = lire(banc({ ...NPN, vcesat: '0.2' }, '10', false), true);
+	rows.push({
+		name: 'bipolaire : Vce(sat) est une chute FIXE (charge ÷ 10, même lecture)',
+		ok: proche(vSatCharge, 0.2, 0.005), detail: `${vSatCharge} V`,
+	});
+	const vBloque = lire(banc({ ...NPN, vcesat: '0.2' }, '100', false), false);
+	rows.push({
+		name: 'bipolaire bloqué : toute l alimentation reste à ses bornes',
+		ok: proche(vBloque, 5, 0.01), detail: `${vBloque} V`,
+	});
+	// Symbole basculé en darlington sans repasser par le sélecteur : l'attribut du
+	// catalogue (0,2 V) traîne sur l'instance, mais deux jonctions en série ne
+	// descendent pas sous 0,9 V. C'est le défaut de FAMILLE qui doit gagner.
+	const vDar = lire(banc({ ...NPN, symbol: 'darlington-npn', vcesat: '' }, '100', false), true);
+	rows.push({
+		name: 'darlington sans Vce(sat) propre : le défaut de famille (0,9 V) l emporte',
+		ok: proche(vDar, 0.9, 0.005), detail: `${vDar} V`,
+	});
+
+	const MOS = {
+		pkg: 'to92', symbol: 'nmos', named: '1', g: '2', d: '1', s: '3',
+		gain: '0', vcemax: '60', icmax: '0.5',
+	};
+	// Canal passant = résistance : la chute est celle du diviseur Rds(on)/charge.
+	// Le voltmètre est lui-même une branche du calcul de Thévenin, d'où une
+	// tolérance qui laisse la place à la charge qu'il apporte.
+	const vMos = lire(banc({ ...MOS, rdson: '2.5', vgsth: '2.1' }, '100', true), true);
+	rows.push({
+		name: 'MOSFET passant : le voltmètre lit I·Rds(on), pas 0 V',
+		ok: proche(vMos, 5 * 2.5 / (2.5 + 100 + 1), 0.01), detail: `${vMos} V`,
+	});
+	const vMosPetit = lire(banc({ ...MOS, rdson: '0.5', vgsth: '2.1' }, '100', true), true);
+	rows.push({
+		name: 'MOSFET : la lecture SUIT la propriété Rds(on) (5 fois moins → 5 fois moins)',
+		ok: proche(vMosPetit, 5 * 0.5 / (0.5 + 100 + 1), 0.01) && vMosPetit < vMos,
+		detail: `${vMosPetit} V contre ${vMos} V`,
+	});
+	// L'inverse du bipolaire : ici la charge CHANGE la lecture, puisque c'est une
+	// résistance traversée par le courant de la maille.
+	const vMosCharge = lire(banc({ ...MOS, rdson: '2.5', vgsth: '2.1' }, '10', true), true);
+	rows.push({
+		name: 'MOSFET : Rds(on) est une RÉSISTANCE (plus de courant → plus de chute)',
+		ok: vMosCharge !== null && vMosCharge !== undefined && vMosCharge > vMos,
+		detail: `${vMosCharge} V contre ${vMos} V à charge dix fois plus grande`,
+	});
+	// Le piège que le modèle ignorait : « 1 » logique sur la grille ne veut pas
+	// dire canal ouvert si la tension n'atteint pas le seuil.
+	const vSeuil = lire(banc({ ...MOS, rdson: '2.5', vgsth: '6' }, '100', true), true);
+	rows.push({
+		name: 'MOSFET : sous Vgs(th), le canal reste fermé malgré la grille au 1',
+		ok: proche(vSeuil, 5, 0.01), detail: `${vSeuil} V`,
+	});
+	const vMosBas = lire(banc({ ...MOS, rdson: '2.5', vgsth: '2.1' }, '100', true), false);
+	rows.push({
+		name: 'MOSFET grille basse : toute l alimentation reste à ses bornes',
+		ok: proche(vMosBas, 5, 0.01), detail: `${vMosBas} V`,
+	});
+}
+
 let fail = 0;
 for (const r of rows) {
 	if (!r.ok) fail++;

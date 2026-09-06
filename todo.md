@@ -1,7 +1,22 @@
 # À faire
 1. v2026.9.2 publiée et changelog modifié par moi
-1. Affiner le modele analogique des transistors : prise en compte de rdson, du vgsth, Ajouter une propriété Vcesat pour les transistor bipolaires et la prendre en compte (un voltmetre affiche la bonne valeur) pas de zone linéaire.
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.54 — Un transistor passant n'est plus un fil
+
+1. ✅ **Ce qui reste aux bornes d'un transistor passant dépend de sa famille** (item 2), et le modèle n'en tenait pas compte : un MOSFET portait la même chute fixe qu'un bipolaire (`VDS_ON`), un bipolaire portait la même valeur quel que soit le modèle choisi, et la grille d'un MOSFET n'était jugée que sur son niveau **logique**.
+2. ✅ **Deux natures, deux traitements** ([model.mts](src/webview/diagram/model.mts)) : le canal d'un MOSFET est une **résistance** (`Rds(on)`, portée par la nouvelle `ohms` de `ActiveBridge` et posée comme poids d'arête), le collecteur d'un bipolaire saturé est une **chute fixe** (`Vce(sat)`, qui reste un `drop`). Ce n'est pas une nuance d'écriture : la chute d'un MOSFET suit le courant, celle d'un bipolaire non.
+3. ✅ **`Vce(sat)` devient une propriété du composant** (`vcesat`, visible sur les bipolaires seulement), et **`Vgs(th)`** une propriété des MOSFET (`vgsth`) — jusqu'ici seul `rdson` existait, et il n'était même pas utilisé par le calcul.
+4. ✅ **Les 26 références de la base reçoivent leur valeur de fiche technique** ([transistors.mts](src/webview/diagram/transistors.mts)) : de 0,2 V (2N3904, 2N5551) à 0,7 V (BC337, BC327) pour les bipolaires, 0,9 V pour les darlingtons, et Vgs(th) 2,1 V au BS170 contre **3,5 V à l'IRF530** — c'est précisément ce qui fait qu'un IRF530 ne s'ouvre pas correctement sur une sortie 3,3 V.
+5. ✅ **La grille se juge maintenant en TENSION, pas en niveau logique.** `mosGateVolts` calcule le vrai Vgs par Thévenin (grille et source), et le canal ne s'ouvre que si `|Vgs| ≥ Vgs(th)`. Un pont diviseur ou une sortie 3,3 V sur un MOSFET de puissance donnent un « 1 » logique franc **sans** ouvrir le canal — le piège que le modèle ignorait. Repli prudent : grille incalculable côté résistif → on garde l'ancien verdict logique, le modèle ne devient jamais plus sévère qu'avant.
+6. ✅ **Le défaut de famille prime sur celui du catalogue.** Basculer le symbole en darlington sans repasser par le sélecteur laissait le `vcesat: '0.2'` du catalogue sur l'instance : le composant mentait d'une jonction entière. Sans valeur propre, un darlington reprend ses 0,9 V.
+7. ✅ **Les chiffres**, voltmètre aux bornes du transistor, charge de 100 Ω sur 5 V : NPN à `Vce(sat)` 0,2 V → **0,200 V** ; le même à 0,7 V → **0,700 V** ; et **toujours 0,200 V** avec une charge dix fois plus petite (c'est une chute, pas une résistance). MOSFET `Rds(on)` 2,5 Ω → **0,120 V**, soit le diviseur exact ; à 0,5 Ω → **0,024 V** ; charge divisée par dix → la chute **monte** (c'est une résistance, pas une chute). Seuil à 6 V sur une commande de 5 V → **5,000 V** aux bornes, canal fermé.
+8. ✅ **Dix contrôles neufs** dans `verify:transistor` (**174 au vert**) : les deux natures de chute, leur dépendance à la charge, le suivi des deux propriétés, le seuil de grille, le transistor bloqué, et le défaut de famille du darlington.
+9. ℹ️ **La zone linéaire reste hors modèle**, comme demandé : un transistor est passant ou bloqué, jamais entre les deux. Le `Rds(on)` d'un MOSFET passant est bien une résistance, mais une résistance **constante** — pas la courbe Id/Vds réelle.
+10. ✅ **Le reste de la suite est intact** : **103 bancs sur 104** au vert, typecheck sans erreur, construction faite.
+11. ⏳ **`verify:i18n` sort en échec, et c'est le manque attendu** : les libellés des deux nouvelles propriétés (`Vce(sat) (V)`, `Vgs(th) (V)`, sur `transistor`, `npn` et `pnp`) n'existent qu'en anglais. Chaîne de base écrite au fil de l'eau, `l10n/bundle.l10n.fr.json` **avant publication**, comme le veut la règle des traductions. Six clés à ajouter — c'est le seul banc en échec de la suite.
+
 ---
 
 # >>>>  v2026.9.2.53 — Le ventilateur et le moteur ne sont plus des trous dans le circuit
