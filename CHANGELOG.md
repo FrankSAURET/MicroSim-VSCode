@@ -2,11 +2,12 @@
 
 Format Calver : **ANNÉE.MOIS.incrément**, l'incrément repartant à 0 chaque mois.
 
-## 2026.9.2 (à paraître)
+## 2026.9.2 (6 septembre 2026)
 
-- _Rien encore : les nouveautés du prochain lot s'écriront ici._
+- **Le poster de brochage de l'Uno retouché** : Il devient cohérent avec ceux des autres cartes arduino (source Arduino)
+- L'ouverture intempestive de la fenêtre de sortie à l'ouverture d'une carte arduino à été corrigée (necessite une mise à jour de Arduino VsCode IDE)
 
-## 2026.9.1 (2026-09-03)
+## 2026.9.1 (3 septembre 2026)
 
 - **Les LED comptent dans les calculs électriques** : une LED n'est plus un simple interrupteur pour le reste du montage, sa chute de tension et son courant entrent dans le calcul.
 - **L'ampèremètre n'est plus un fil parfait** : il insère sa **résistance interne de 0,1 Ω**, comme un vrai appareil avec son shunt. La chute à ses bornes existe donc et se mesure au voltmètre, sans changer le courant du montage de façon visible. Posé en travers d'une alimentation, il reste détecté comme court-circuit.
@@ -16,11 +17,9 @@ Format Calver : **ANNÉE.MOIS.incrément**, l'incrément repartant à 0 chaque m
 - **Un quart de tour par clic** sur les deux boutons de rotation : quatre clics font le tour. Le pas fin de 45° reste sous les touches **+** et **−**.
 - **Plus de point jaune sous la poignée d'un fil sélectionné** : on ne voit plus que le point blanc qu'on vient attraper. Le repère reste allumé pendant un câblage en cours, là où il sert.
 - **Un atelier vierge ne réclame plus d'enregistrement.** 
-- **Le poster de brochage de l'Uno retombe sur ses pattes** : le dessin retouché fait 280×450 et non plus 293×480 ; déclaré à l'ancienne taille, il était agrandi de 4,7 % et **toutes** ses étiquettes glissaient d'une trentaine de pixels. Calage remesuré sur les 36 tiges du poster, écart résiduel sous le dixième de pixel.
-- **Dessin de la carte Uno retouché** (décalages de texte repris à la main) et **`avr8js` en 0.21.1** : le test d'allumage du convertisseur analogique-numérique était écrit avec un « et » de trop.
-- **Les posters de brochage portent leur crédit** dans le fichier livré : « Pinout: Arduino (modified) » et « Pinout: Raspberry Pi (modified) ».
+- **Dessin de la carte Uno retouché** (décalages de texte repris à la main) et **`avr8js` en 0.21.1**.
 
-## 2026.9.0 (2026-09-02)
+## 2026.9.0 (2 septembre 2026)
 
 - **Deux cartes de plus : Raspberry Pi Pico 2 et Pico 2 W.** Elles se choisissent dans la barre d'outils, se posent, se simulent et s'enregistrent comme les autres, avec leur dessin officiel et leur poster de brochage. Un **troisième moteur** est embarqué pour elles (`rp2350js`, cœurs Cortex-M33), à côté d'`avr8js` et de `rp2040js`.
 - **Le Pico W fait serveur web** : la carte se déclare en point d'accès, sert une page ALLUMER/ÉTEINDRE, et **un téléphone du réseau allume la LED**. Le pont réseau accepte désormais les connexions entrantes, sans jamais interpréter ce qui passe : c'est le programme qui parle HTTP, exactement comme sur le matériel réel.

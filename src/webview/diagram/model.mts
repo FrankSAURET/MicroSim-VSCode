@@ -233,6 +233,45 @@ export function setGateDrives(list: readonly GateDrive[]): void {
 }
 
 /**
+ * Position courante du curseur de chaque potentiomètre, posée par la simulation
+ * (le bouton se tourne dans l'ÉLÉMENT, l'attribut `value` du schéma ne bouge
+ * pas). Fraction 0..1 comptée du côté GND vers le côté VCC. Absent → repli sur
+ * l'attribut `value` du schéma. Le changement vide le cache de frame, sinon le
+ * graphe du tour précédent servirait au tour suivant.
+ */
+let potFractions: ReadonlyMap<string, number> = new Map();
+
+function potFractionSignature(m: ReadonlyMap<string, number>): string {
+  return [...m].map(([id, f]) => `${id}=${f.toFixed(4)}`).sort().join('|');
+}
+
+export function setPotFractions(m: ReadonlyMap<string, number>): void {
+  if (potFractionSignature(m) === potFractionSignature(potFractions)) return;
+  potFractions = m;
+  frameGraphs.clear();
+}
+
+/**
+ * Fraction 0..1 du curseur d'un potentiomètre : part de la résistance totale
+ * située entre SIG et GND — donc la tension lue au curseur d'un pont 0-VCC.
+ * C'est exactement la valeur que la simulation envoie à l'entrée analogique
+ * (potBindings), d'où la même convention des deux côtés. Le modèle à GLISSIÈRE
+ * est monté à l'envers (curseur poussé vers la masse = lecture forte).
+ */
+function potFraction(part: Part): number {
+  const live = potFractions.get(part.id);
+  if (live !== undefined) return clamp01(live);
+  const value = Number(part.attrs?.value ?? partDef(part.type).attrs?.value ?? 50);
+  const max = Number(part.attrs?.max ?? partDef(part.type).attrs?.max ?? 100) || 100;
+  const frac = Number.isFinite(value) ? value / max : 0.5;
+  return clamp01(part.type === 'slide-pot' ? 1 - frac : frac);
+}
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));
+}
+
+/**
  * Construit la netlist. Les fils relient les broches ; une résistance se
  * comporte comme un fil entre ses deux pattes (1 ↔ 2) ; une platine d'essai
  * relie les trous de chaque bande (colonnes a–e / f–j et rails).
@@ -792,6 +831,23 @@ function computeResistiveGraph(
       const b = nets.netOf({ partId: part.id, pin: 'GND' });
       link(a, b, { ohms: METER_OHMS, partId: part.id });
       link(b, a, { ohms: METER_OHMS, partId: part.id });
+    } else if (kind === 'potentiometer') {
+      // Un potentiomètre EST une résistance à prise médiane : la piste entière
+      // relie VCC à GND, et le curseur la coupe en deux. Sans ces deux arêtes
+      // le composant n'existait pas dans le circuit — sa valeur partait
+      // directement sur l'entrée analogique du MCU (setAnalog) et un voltmètre
+      // posé sur SIG lisait zéro (Frank, lot .51).
+      const total = Math.max(1, Number(part.attrs?.ohms ?? 10_000) || 10_000);
+      const frac = potFraction(part); // part de la piste située entre SIG et GND
+      const vcc = nets.netOf({ partId: part.id, pin: rolePin(part.type, 'VCC') });
+      const sig = nets.netOf({ partId: part.id, pin: rolePin(part.type, 'SIG') });
+      const gnd = nets.netOf({ partId: part.id, pin: rolePin(part.type, 'GND') });
+      const haut = total * (1 - frac); // VCC → SIG
+      const bas = total * frac;        // SIG → GND
+      link(vcc, sig, { ohms: haut, partId: part.id });
+      link(sig, vcc, { ohms: haut, partId: part.id });
+      link(sig, gnd, { ohms: bas, partId: part.id });
+      link(gnd, sig, { ohms: bas, partId: part.id });
     } else if (kind === 'relay') {
       // La bobine est une résistance comme une autre pour le reste du schéma
       // (U²/P, soit 125 Ω sous 5 V) : c'est elle qui fixe le courant appelé.

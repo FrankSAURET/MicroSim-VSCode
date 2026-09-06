@@ -130,6 +130,7 @@ import {
   commandedBridges,
   manualContacts,
   setActiveBridges,
+  setPotFractions,
   bridgeSignature,
   logicIcStates,
   logicIcDrives,
@@ -1296,6 +1297,29 @@ const contactState: ManualContactState = {
 };
 
 /**
+ * Position du curseur de CHAQUE potentiomètre du schéma, poussée au modèle avant
+ * les calculs de la frame : le bouton se tourne dans l'élément, l'attribut
+ * `value` du schéma ne bouge pas. Sans cela, un voltmètre posé sur le curseur
+ * lirait la position de repos et non celle du moment. Tous les potentiomètres,
+ * pas seulement ceux reliés à une entrée analogique (potBindings).
+ */
+function pushPotFractions(): void {
+  const map = new Map<string, number>();
+  for (const part of editor.diagram.parts) {
+    if (partDef(part.type).kind !== 'potentiometer') continue;
+    const el = editor.elementOf(part.id);
+    if (!el) continue;
+    const max = Number(el.max ?? 100) || 100;
+    const frac = Number(el.value ?? 0) / max;
+    if (!Number.isFinite(frac)) continue;
+    // Le modèle à glissière est monté à l'envers (curseur vers la masse =
+    // lecture forte), comme dans potBindings.
+    map.set(part.id, part.type === 'slide-pot' ? 1 - frac : frac);
+  }
+  setPotFractions(map);
+}
+
+/**
  * Ponts commandés de la frame : un transistor saturé et un contact de relais
  * collé sont des interrupteurs FERMÉS dont dépend tout l'aval… alors que leur
  * propre commande dépend des niveaux, donc des mêmes interrupteurs. On tourne
@@ -1308,6 +1332,7 @@ const contactState: ManualContactState = {
  */
 function resolveBridges(): void {
   if (!engine) return;
+  pushPotFractions();
   const read = (name: string): boolean => engine!.readDigital(name);
   const vcc = isPicoBoard(board) ? 3.3 : 5;
   // Contacts fermés à la main : ils ne dépendent d'aucun niveau, donc ils sont

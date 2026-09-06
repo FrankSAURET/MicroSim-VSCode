@@ -194,5 +194,89 @@ run().catch((e) => {
   }
 }
 
+// --- 3. Le potentiomètre EXISTE dans le circuit -----------------------------
+// Il est une résistance à prise médiane, pas seulement une valeur envoyée à
+// l'entrée analogique : câblé en pont sur une alim, un voltmètre posé sur son
+// curseur doit lire la tension du pont, et l'alim débiter U/Rtotal (lot .52 —
+// avant, le voltmètre lisait zéro, le composant n'était nulle part dans le
+// graphe résistif).
+console.log('Mesure au voltmètre :');
+{
+  writeFileSync(join(CACHE, 'model.mjs'), `
+export { meterReadings, setPotFractions } from '../../src/webview/diagram/model.mjs';
+`);
+  const modelFile = join(CACHE, 'model.bundle.mjs');
+  await esbuild.build({
+    entryPoints: [join(CACHE, 'model.mjs')],
+    outfile: modelFile, bundle: true, platform: 'node', format: 'esm', logLevel: 'silent',
+    loader: { '.svg': 'text', '.webp': 'dataurl' }, absWorkingDir: ROOT,
+  });
+  const { meterReadings, setPotFractions } = await import(pathToFileURL(modelFile).href);
+
+  const P = (id, type, attrs) => ({ id, type, x: 0, y: 0, attrs: attrs ?? {} });
+  const W = (id, a, b) => ({ id, a, b });
+  const pin = (partId, p) => ({ partId, pin: p });
+  // Pot câblé VCC → curseur → GND sur une alim 5 V, voltmètre entre le curseur
+  // et la masse, ampèremètre dans le retour de l'alim.
+  const banc = (type, ohms = '10000', value = '50') => ({
+    parts: [
+      P('psu', 'alim', { voltage: '5', maxcurrent: '1' }),
+      P('pot', type, { ohms, value, max: '100' }),
+      P('mv', 'multimetre', { mode: 'voltage' }),
+      P('ma', 'multimetre', { mode: 'current' }),
+    ],
+    wires: [
+      W('w1', pin('psu', 'V+'), pin('pot', 'VCC')),
+      W('w2', pin('pot', 'GND'), pin('ma', '+')),
+      W('w3', pin('ma', 'GND'), pin('psu', 'GND')),
+      W('w4', pin('pot', 'SIG'), pin('mv', '+')),
+      W('w5', pin('psu', 'GND'), pin('mv', 'GND')),
+    ],
+  });
+  const mesure = (type, frac, ohms, value) => {
+    setPotFractions(frac === null ? new Map() : new Map([['pot', frac]]));
+    const r = meterReadings(banc(type, ohms, value), 5);
+    return {
+      volts: r.find((x) => x.partId === 'mv')?.value,
+      amps: r.find((x) => x.partId === 'ma')?.value,
+    };
+  };
+  const proche = (a, b, tol) => a !== null && a !== undefined && Math.abs(a - b) <= tol;
+
+  for (const type of ['pot', 'slide-pot', 'pot-rot2']) {
+    // La position poussée par la simulation est déjà comptée côté masse pour
+    // les trois modèles (le sens de la glissière est corrigé à la source).
+    const bas = mesure(type, 0);
+    const mid = mesure(type, 0.5);
+    const haut = mesure(type, 1);
+    const quart = mesure(type, 0.25);
+    check(`${type} : curseur à fond côté masse → 0 V`, proche(bas.volts, 0, 0.01), `${bas.volts}`);
+    check(`${type} : curseur au milieu → la moitié de l’alim`, proche(mid.volts, 2.5, 0.01), `${mid.volts}`);
+    check(`${type} : curseur à fond côté + → toute l’alim`, proche(haut.volts, 5, 0.01), `${haut.volts}`);
+    check(`${type} : le pont est linéaire (25 % → 1,25 V)`, proche(quart.volts, 1.25, 0.01), `${quart.volts}`);
+    // Le courant ne dépend PAS de la position : c'est la piste entière qui est
+    // branchée aux bornes de l'alim (5 V / 10 kΩ = 0,5 mA).
+    check(`${type} : la piste entière consomme U/R, quelle que soit la position`,
+      proche(bas.amps, 0.0005, 2e-6) && proche(mid.amps, 0.0005, 2e-6) && proche(haut.amps, 0.0005, 2e-6),
+      `${bas.amps} / ${mid.amps} / ${haut.amps}`);
+    // La valeur nominale fixe le courant, pas la tension du pont.
+    const petit = mesure(type, 0.5, '1000');
+    check(`${type} : 1 kΩ → même 2,5 V mais 5 mA`,
+      proche(petit.volts, 2.5, 0.01) && proche(petit.amps, 0.005, 2e-5),
+      `${petit.volts} V / ${petit.amps} A`);
+  }
+  // Hors simulation, la position vient de l'attribut `value` du schéma. Le
+  // modèle à glissière y est monté à l'envers (curseur vers la masse = lecture
+  // forte), exactement comme dans potBindings.
+  check('sans simulation, la position vient de l’attribut value (20 % → 1 V)',
+    proche(mesure('pot', null, '10000', '20').volts, 1, 0.01),
+    `${mesure('pot', null, '10000', '20').volts}`);
+  check('la glissière garde son sens inversé hors simulation (20 % → 4 V)',
+    proche(mesure('slide-pot', null, '10000', '20').volts, 4, 0.01),
+    `${mesure('slide-pot', null, '10000', '20').volts}`);
+  // Curseur en l'air : le pont existe toujours entre VCC et GND.
+  setPotFractions(new Map());
+}
+
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);
 process.exit(failures === 0 ? 0 : 1);

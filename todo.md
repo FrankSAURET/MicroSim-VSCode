@@ -1,8 +1,22 @@
 # À faire
-1. Rendre le **potentiomètre** mesurable au voltmètre : deux arêtes VCC→SIG et SIG→GND dans `resistiveGraph`, proportionnelles à la position (voir lot .51). Idem, moins urgent, pour le ventilateur et le moteur à courant continu.
+1. v2026.9.2 publiée et changelog modifié par moi
+1. rendre Ventilateur, moteur à courant continu et vibreur mesurable au voltmètre.
+1. Affiner le modele analogique des transistors : prise en compte de rdson, du vgsth, Ajouter une propriété Vcesat pour les transistor bipolaires et la prendre en compte (un voltmetre affiche la bonne valeur) pas de zone linéaire.
 ## ne pas faire pour l'instant
 ---
 
+# >>>>  v2026.9.2.52 — Le potentiomètre existe enfin dans le circuit
+
+1. ✅ **Le potentiomètre est une résistance à prise médiane, plus une valeur en l'air** (item 1). Jusqu'ici sa position partait **directement** sur l'entrée analogique du microcontrôleur (`setAnalog`), sans jamais exister comme tension dans le montage : un voltmètre posé sur le curseur lisait **zéro**, et l'alimentation ne débitait rien — c'est le premier composant qu'un débutant sonde, et il ne répondait pas.
+2. ✅ **Deux arêtes dans le graphe résistif** ([model.mts](src/webview/diagram/model.mts)) : VCC↔SIG pour `R·(1−x)` et SIG↔GND pour `R·x`, où `x` est la position du curseur et `R` la valeur nominale du boîtier. Les trois modèles sont servis d'un coup — rotatif, glissière et ajustable partagent le même `kind`.
+3. ✅ **La netlist fusionnée n'a pas bougé.** Le graphe résistif travaille sur la netlist NON fusionnée ; côté « qui est relié à quoi », le curseur reste un point séparé des extrémités, comme avant. Même prudence que pour le shunt de l'ampèremètre au lot .46.
+4. ✅ **La position du bouton suit en direct.** Tourner le potentiomètre change l'élément, pas l'attribut `value` du schéma : la simulation pousse donc les positions au modèle à chaque frame (`setPotFractions`, appelé depuis `resolveBridges`), pour **tous** les potentiomètres du schéma et pas seulement ceux câblés sur une entrée analogique. Hors simulation, repli sur l'attribut.
+5. ✅ **Une seule convention des deux côtés** : la fraction est comptée du côté masse — exactement ce que la simulation envoie à l'ADC (`potBindings`) et ce qu'affiche la lecture à l'écran (« Position : 66 % (6,6 kΩ|3,4 kΩ) », le bras curseur→bas d'abord). La glissière garde son sens inversé, corrigé à la source.
+6. ✅ **Les chiffres**, mesurés sur un pot de 10 kΩ câblé en pont sur une alim de 5 V : **0 V** curseur à fond côté masse, **1,250 V** au quart, **2,500 V** au milieu, **5,000 V** à fond côté plus — et l'alim débite **0,500 mA** quelle que soit la position (c'est la piste ENTIÈRE qui est à ses bornes, 5 V / 10 kΩ). Le même pot en 1 kΩ : mêmes tensions, **5 mA**.
+7. ✅ **Vingt contrôles neufs** dans `verify:pot` : les quatre positions, la linéarité du pont, le courant indépendant de la position, l'effet de la valeur nominale, et le repli hors simulation (20 % → 1 V au rotatif, 4 V à la glissière).
+8. ✅ **Aucune régression** : suite complète à **104/104**, typecheck sans erreur. Le potentiomètre entre dans le graphe résistif que partagent LED, transistors, relais et alimentations — c'était le risque, il n'a pas eu lieu.
+
+---
 # >>>>  v2026.9.2.51 — La 2026.9.1 est en ligne, et l'inventaire de ce qui se mesure vraiment
 
 1. ✅ **La 2026.9.1 est publiée, le compteur avance** (item 1). Elle est en ligne depuis aujourd'hui (`kablix-2026.9.1.vsix` construit à 10 h 16) ; `version` passe donc à **2026.9.2**, posée en attente de la prochaine mise en ligne, exactement comme la 2026.9.1 l'était depuis le lot .46. Même mois, donc l'incrément avance d'un cran sans repartir à zéro. `buildNumber` à 51.
