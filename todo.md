@@ -1,7 +1,19 @@
 # À faire
-1. Retouche ce que tu viens de préparer : La 2026.9.1 a été publiée au lot 46 donc on passe en 2026.9.2 et retouche le changelog en conséquence.
-1. Liste moi tous les composants simulable de façon analogique. Je veux dire par là que si on place un voltmetre ou un amperemetre ou un oscillo on obtient une valeur (ou une courbe) qui ressemble à la réalité.
+1. Rendre le **potentiomètre** mesurable au voltmètre : deux arêtes VCC→SIG et SIG→GND dans `resistiveGraph`, proportionnelles à la position (voir lot .51). Idem, moins urgent, pour le ventilateur et le moteur à courant continu.
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.51 — La 2026.9.1 est en ligne, et l'inventaire de ce qui se mesure vraiment
+
+1. ✅ **La 2026.9.1 est publiée, le compteur avance** (item 1). Elle est en ligne depuis aujourd'hui (`kablix-2026.9.1.vsix` construit à 10 h 16) ; `version` passe donc à **2026.9.2**, posée en attente de la prochaine mise en ligne, exactement comme la 2026.9.1 l'était depuis le lot .46. Même mois, donc l'incrément avance d'un cran sans repartir à zéro. `buildNumber` à 51.
+2. ✅ **CHANGELOG retouché en conséquence** : l'entrée `2026.9.1 (2026-09-06)` reste telle quelle — c'est ce que les utilisateurs ont réellement reçu — et une entrée **`2026.9.2 (à paraître)`** s'ouvre au-dessus pour recevoir les nouveautés des prochains lots.
+3. ✅ **CLAUDE.md remis à jour** : l'exception de version disait « `2026.9.1` en attente, dernière en ligne `2026.9.0` ». Elle dit maintenant « `2026.9.2` en attente, dernière en ligne `2026.9.1`, publiée le 6 septembre 2026 ».
+
+4. ✅ **Inventaire de la simulation analogique** (item 2), établi par la MESURE et non par lecture du code : deux bancs de diagnostic montent chaque composant sous une alim de 5 V avec 1 kΩ en série, un voltmètre à ses bornes et un ampèremètre dans la branche, puis lisent ce que rendent les appareils ([_diag-analogique.mjs](scripts/_diag-analogique.mjs), [_diag-analogique2.mjs](scripts/_diag-analogique2.mjs)).
+5. ✅ **Quatorze familles répondent juste.** Résistance (0,900 V / 4,091 mA, Ohm exact), LED (1,800 V de seuil), diode (0,600 V), LDR (1,958 V, R = R1lx·x^−γ), CTN (4,545 V, loi β), CTP (3,331 V), photodiode (4,950 V) et phototransistor (2,497 V, cent fois plus de courant), bobine de relais (0,555 V pour 125 Ω), transistor saturé (0,200 V de Vce, courant borné à β·Ib), condensateur (5,000 V et zéro courant en régime établi, charge en exponentielle exacte), le shunt de 0,1 Ω de l'ampèremètre lui-même, les sorties de portes logiques, et les broches de carte — **5,000 V forcée haute, 2,500 V en PWM à 50 %**, le multimètre moyennant le hachage là où l'oscilloscope trace les créneaux un par un.
+6. ✅ **Ce qui ne se mesure PAS, et pourquoi.** Potentiomètre (les trois modèles), joystick, capteurs modules à sortie AO/DO (lumière, flamme, gaz, son), capteur NTC module, capteur cardiaque, effet Hall, PIR, inclinaison : leur valeur part **directement sur l'entrée analogique du microcontrôleur** (`setAnalog`), sans jamais exister comme tension dans le montage. Un voltmètre posé sur leur sortie ne lit donc rien du tout. Ventilateur, moteur à courant continu et vibreur ont bien un calcul d'alimentation à part, mais sont absents du graphe résistif : vus du voltmètre, le circuit est ouvert.
+7. ℹ️ **Le manque le plus visible est le potentiomètre** — c'est le premier composant qu'un débutant sonde au voltmètre, et il donne zéro. Deux arêtes dans `resistiveGraph` suffiraient. Reporté en tête des choses à faire.
+
 ---
 
 # >>>>  v2026.9.1.50 — Publication préparée : le CHANGELOG rattrape trois lots, l'aide ne ment plus
