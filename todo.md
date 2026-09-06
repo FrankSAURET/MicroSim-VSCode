@@ -1,6 +1,27 @@
 # À faire
-1. v2026.9.2 publiée et changelog modifié par moi
+- j'ai supprimé roadmap.md (noté, liens morts réparés au lot .55)
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.55 — Le rapport cyclique arrive enfin jusqu'aux appareils
+
+1. ✅ **Un moteur haché en PWM ne donnait pas sa valeur moyenne au voltmètre** (item 1) — et pas seulement au voltmètre : la **vitesse** ignorait elle aussi le rapport cyclique dès qu'un transistor s'interposait entre la broche et la charge. C'est-à-dire dans le **seul montage réaliste** : une sortie de carte ne tient pas les 200 mA d'un moteur, il y a toujours un transistor.
+2. ✅ **Pourquoi la commande directe marchait et pas l'autre.** Une charge posée sur la broche voyait bien sa moyenne (`pwmVolts` l'appliquait dans `circuitSources`). Avec un transistor, deux choses cassaient d'un coup : `commandedBridges` ne connaissait que `readPin` **booléen** — un transistor haché lui apparaissait franchement passant — et `dcLoadCircuit.mcuPin` valait `null`, donc le `duty` de `motorStates` n'était jamais consulté.
+3. ✅ **Le transistor sait maintenant qui le commande** ([model.mts](src/webview/diagram/model.mts)) : `commandPin` remonte du net de la base vers la première broche numérique de la carte, en parcours de largeur, en **évitant les rails et les autres ponts commandés** (sinon on ressort par le collecteur du voisin). Le résultat est rangé dans `gatePin` sur `TransistorState`.
+4. ✅ **Le rapport cyclique voyage avec le pont** : `ActiveBridge.duty` posé par `commandedBridges` (nouveau 6e paramètre `pwmDuty`, alimenté depuis [sim.mts](src/webview/sim.mts) par `pulseActive` + `readPwmDuty`), reporté sur l'arête résistive, propagé le long d'un chemin par `minOhmsPath` (produit des rapports rencontrés). `bridgeSignature` l'inclut, sans quoi le cache d'image gardait l'ancien état.
+5. ✅ **La bonne physique n'est pas une pondération, c'est une MOYENNE DE DEUX CIRCUITS.** Deux tentatives ont échoué avant d'y arriver — atténuer la tension dans `theveninNode` (variation infime, mauvais sens), pondérer la conductance (extrêmes justes, mais 4,37 V au lieu de 2,2 V à 50 % : la branche de masse, très basse impédance, écrasait le poids). Un transistor haché **n'a pas d'état de repos unique** : `averagedOverChopping` résout le circuit **deux fois** — ponts fermés, puis ponts hachés rouverts — et mélange `α·fermé + (1−α)·ouvert`.
+6. ✅ **Les chiffres, montage broche 9 → 1 kΩ → base d'un PN2222A, moteur entre 5 V et collecteur, roue libre** : 0 % → **0,000 V**, 25 % → **1,111 V**, 50 % → **2,222 V**, 75 % → **3,333 V**, 100 % → **4,444 V**. Linéaire au chiffre près, et **le même modèle** sert la vitesse et le voltmètre — ils ne peuvent plus diverger.
+7. ✅ **Un ampèremètre dans une branche coupée lit zéro, pas « rien ».** Pont ouvert, `meterReadings` rendait `null`, ce qui contaminait la moyenne et faisait disparaître la mesure dès qu'il y avait hachage. Corrigé : **80,150 mA** à plein régime, **40,075 mA** à 50 %.
+8. ✅ **Double comptage évité proprement.** Le rapport cyclique était appliqué une fois par le pont et une fois par le paramètre `duty` de `motorStates` (0,5 → 1,2 V au lieu de 2,4 V). Le premier correctif (tester `mcuPin === null`) a **cassé deux contrôles existants** — une alimentation de laboratoire donne aussi `mcuPin = null`. Retenu : un champ explicite `chopped` sur `FanCircuit`, posé par `dcLoadCircuit` quand le chemin porte un hachage.
+9. ✅ **Sept contrôles neufs** dans `verify:motor` (section « Variateur PWM par transistor ») : les deux extrêmes, la moitié exacte, la linéarité à 25 % et 75 %, la vitesse qui suit, l'identité vitesse/voltmètre, et **la non-régression sans PWM** (à 10⁻⁹ près, la mesure d'avant ce lot).
+10. ✅ **Banc de mesure `mesure-uno` / `mesure-pico`** (item 2) : cinq montages sur **une seule planche**, six appareils qui mesurent **en même temps** — variateur à transistor (M1 voltmètre aux bornes du moteur, M2 ampèremètre **en série**, O1 oscilloscope sur la base), ventilateur sur l'alimentation (M3), bobine de relais (M4), potentiomètre en pont (M5). Écrit dans `_spec.mjs`, généré par `_generate.mjs`, ligne ajoutée au `testkablix/README.md`.
+11. ✅ **C'est le banc qui montre la différence entre les deux appareils.** À 50 % de rapport cyclique, M1 lit **2,303 V** et M2 **40,075 mA** — la moitié — pendant que O1 garde **toute** la hauteur du créneau (4,337 V sur Uno, 2,649 V sur Pico). Le multimètre moyenne, l'oscilloscope montre. **181 contrôles au vert** sur les deux bancs.
+12. ℹ️ **Deux fichiers et non un seul**, contrairement à la formulation de l'item : la convention du dépôt (et `_generate.mjs`) impose `<nom>-uno` et `<nom>-pico`, deux cartes ne pouvant pas partager un même nom de fichier. Le **contenu** est bien celui demandé — un seul schéma par carte, tous les montages dessus.
+13. ✅ **Deux liens morts réparés** après la suppression de `roadmap.md` : `scripts/rp2350js-eval/README.md` et `scripts/vitesse-pico.md` §15 le référençaient en markdown. Les mentions en commentaire de scripts (pistes 4, 7, 8, 12) sont laissées telles quelles — ce sont des repères historiques, pas des liens.
+14. ✅ **Aucune régression** : suite complète relancée, **102 bancs sur 104**, typecheck sans erreur, construction faite.
+15. ℹ️ **`verify:rfid` sort en échec, et il sortait déjà en échec avant ce lot** (vérifié en remisant les modifications : même unique échec). Le contrôle « un câblage en échec est dit à l'élève » lit une expression exacte dans `startRun` de `sim.mts`. Rien à voir avec la simulation analogique — à traiter à part.
+16. ⏳ **`verify:i18n` toujours en échec, même manque qu'au lot .54** : les six libellés `Vce(sat) (V)` / `Vgs(th) (V)` n'existent qu'en anglais. `l10n/bundle.l10n.fr.json` **avant publication**, comme le veut la règle des traductions.
+
 ---
 
 # >>>>  v2026.9.2.54 — Un transistor passant n'est plus un fil
@@ -55,7 +76,6 @@
 7. ℹ️ **Le manque le plus visible est le potentiomètre** — c'est le premier composant qu'un débutant sonde au voltmètre, et il donne zéro. Deux arêtes dans `resistiveGraph` suffiraient. Reporté en tête des choses à faire.
 
 ---
-
 # >>>>  v2026.9.1.50 — Publication préparée : le CHANGELOG rattrape trois lots, l'aide ne ment plus
 
 1. ✅ **La version publique ne bouge pas, et c'est voulu.** `version` vaut déjà **2026.9.1** : elle a été posée en attente au lot .46, la dernière version réellement en ligne étant la 2026.9.0 du 2 septembre. On est le 6 septembre, même mois : le calver reste `2026.9.1`. Rien à incrémenter — le champ est prêt tel quel pour la mise en ligne.

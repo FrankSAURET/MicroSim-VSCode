@@ -475,5 +475,93 @@ console.log('Mesure au voltmètre :');
     `${lire(enLair).amps}`);
 }
 
+// --- 6. Variateur : le transistor de commande HACHÉ en PWM -------------------
+// Le rapport cyclique n'atteignait ni le voltmètre ni le calcul de vitesse dès
+// qu'un transistor s'interposait : le moteur recevait la tension PLEINE quelle
+// que soit la consigne du programme (le duty n'était consulté que si la broche
+// alimentait le moteur EN DIRECT, ce que personne ne fait — une broche ne tient
+// pas 200 mA). Corrigé au lot .55 : le pont du transistor porte son rapport
+// cyclique, et la mesure est la moyenne temporelle des deux circuits.
+console.log('Variateur PWM par transistor :');
+{
+  const p = (id, type, attrs) => ({ id, type, x: 0, y: 0, attrs: attrs ?? {} });
+  const w = (id, a, b) => ({ id, a, b });
+  const pn = (partId, pin) => ({ partId, pin });
+  // Montage d'école : broche 9 → 1 kΩ → base, moteur entre le 5 V et le
+  // collecteur, diode de roue libre en travers.
+  const banc = {
+    parts: [
+      p('uno', 'uno'),
+      p('q', 'npn'),
+      p('rb', 'resistor', { value: '1000' }),
+      p('m1', 'moteur-dc', { voltage: '5', current: '0.2' }),
+      p('d1', 'diode'),
+      p('mv', 'multimetre', { mode: 'voltage' }),
+    ],
+    wires: [
+      w('w1', pn('uno', '9'), pn('rb', '1')),
+      w('w2', pn('rb', '2'), pn('q', '2')),
+      w('w3', pn('uno', '5V'), pn('m1', '1')),
+      w('w4', pn('m1', '2'), pn('q', '3')),
+      w('w5', pn('q', '1'), pn('uno', 'GND.1')),
+      w('w6', pn('m1', '1'), pn('d1', 'K')),
+      w('w7', pn('m1', '2'), pn('d1', 'A')),
+      w('w8', pn('m1', '1'), pn('mv', '+')),
+      w('w9', pn('m1', '2'), pn('mv', 'GND')),
+    ],
+  };
+  // La broche 9 hache : elle est vue HAUTE (le transistor conduit pendant la
+  // fraction utile) et son rapport cyclique est posé sur le pont.
+  const mesure = (duty) => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(
+        model.commandedBridges(banc, (n) => n === '9', 5, undefined, undefined,
+          (pin) => (pin === '9' ? duty : null))
+      );
+    }
+    const volts = model.meterReadings(banc, 5, (pin) => (pin === '9' ? 'high' : 'hiz'))
+      .find((x) => x.partId === 'mv')?.value;
+    const st = model.motorStates(banc, 5, () => duty)[0];
+    return { volts, speed: st.speed, applied: st.volts };
+  };
+  const plein = mesure(1);
+  const zero = mesure(0);
+  const moitie = mesure(0.5);
+  const quart = mesure(0.25);
+  const troisQuarts = mesure(0.75);
+  model.setActiveBridges([]);
+
+  check('rapport cyclique nul : rien aux bornes du moteur',
+    near(zero.volts, 0, 1e-3), `${zero.volts?.toFixed(3)} V`);
+  check('rapport cyclique plein : le transistor est un interrupteur fermé',
+    plein.volts > 4 && plein.volts < 5, `${plein.volts?.toFixed(3)} V`);
+  check('50 % : le voltmètre lit la MOITIÉ de la tension pleine',
+    near(moitie.volts, plein.volts / 2, 1e-3),
+    `${moitie.volts?.toFixed(3)} V pour ${plein.volts?.toFixed(3)} V pleins`);
+  check('la tension moyenne est LINÉAIRE en rapport cyclique',
+    near(quart.volts, plein.volts * 0.25, 1e-3)
+    && near(troisQuarts.volts, plein.volts * 0.75, 1e-3),
+    `25 % → ${quart.volts?.toFixed(3)} V, 75 % → ${troisQuarts.volts?.toFixed(3)} V`);
+  check('la VITESSE suit le rapport cyclique (variateur)',
+    troisQuarts.speed > moitie.speed && moitie.speed > 0 && zero.speed === 0,
+    `0 %→${(zero.speed * 100).toFixed(0)} % 50 %→${(moitie.speed * 100).toFixed(0)} % `
+    + `75 %→${(troisQuarts.speed * 100).toFixed(0)} %`);
+  check('vitesse et voltmètre viennent du MÊME modèle',
+    near(moitie.applied, plein.applied * 0.5, 1e-3),
+    `${moitie.applied.toFixed(3)} V pour ${plein.applied.toFixed(3)} V pleins`);
+  // Sans hachage, rien ne change : le cas courant ne paie pas la moyenne.
+  const sansPwm = (() => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(model.commandedBridges(banc, (n) => n === '9', 5));
+    }
+    const v = model.meterReadings(banc, 5, (pin) => (pin === '9' ? 'high' : 'hiz'))
+      .find((x) => x.partId === 'mv')?.value;
+    model.setActiveBridges([]);
+    return v;
+  })();
+  check('sans PWM du tout : la mesure est celle d’avant (aucune moyenne)',
+    near(sansPwm, plein.volts, 1e-9), `${sansPwm?.toFixed(3)} V`);
+}
+
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);
 process.exit(failures === 0 ? 0 : 1);

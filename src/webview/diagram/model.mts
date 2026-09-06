@@ -183,6 +183,11 @@ export interface ActiveBridge {
   limitAmps?: number;
   /** Le courant ne passe que de `a` vers `b` (transistor) ; sinon les deux sens. */
   oneWay?: boolean;
+  /** Rapport cyclique 0..1 de la COMMANDE, quand elle est hachée en PWM. Le
+   *  pont ne conduit alors qu'une fraction du temps : ce qu'il alimente ne
+   *  reçoit que la moyenne, et c'est elle qu'affiche un voltmètre en continu.
+   *  Absent (ou 1) = conduction permanente. */
+  duty?: number;
 }
 
 /**
@@ -196,7 +201,10 @@ let activeBridges: readonly ActiveBridge[] = [];
 
 /** Signature d'une liste de ponts (comparaison bon marché entre deux tours). */
 export function bridgeSignature(list: readonly ActiveBridge[]): string {
-  return list.map((b) => `${b.partId}:${b.a}>${b.b}:${b.limitAmps ?? ''}:${b.ohms ?? ''}`).sort().join('|');
+  return list
+    .map((b) => `${b.partId}:${b.a}>${b.b}:${b.limitAmps ?? ''}:${b.ohms ?? ''}:${b.duty ?? ''}`)
+    .sort()
+    .join('|');
 }
 
 export function setActiveBridges(list: readonly ActiveBridge[]): void {
@@ -617,6 +625,11 @@ interface ResistiveEdge {
   /** Courant maximal (A) que l'arête laisse passer : un transistor ne transmet
    *  que Gain × Ib. Absent = pas de limite propre à l'arête. */
   limitAmps?: number;
+  /** Rapport cyclique 0..1 quand l'arête est un interrupteur HACHÉ (transistor
+   *  commandé en PWM). Elle ne conduit qu'une fraction du temps : en aval, la
+   *  tension MOYENNE — la seule qu'affiche un voltmètre en continu, et la seule
+   *  qui fasse tourner un moteur — vaut cette fraction de celle d'amont. */
+  duty?: number;
 }
 
 /** Plus court chemin (somme des résistances) d'un net vers l'un des nets cibles.
@@ -629,12 +642,15 @@ function minOhmsPath(
   targets: Set<string>,
   adj: Map<string, ResistiveEdge[]>,
   avoid?: Set<string>,
-  reached?: { net?: string; drop?: number; limitAmps?: number },
+  reached?: { net?: string; drop?: number; limitAmps?: number; duty?: number },
   dir: FlowDir = 'sink'
 ): number | null {
   const dist = new Map<string, number>([[from, 0]]);
   const drops = new Map<string, number>([[from, 0]]);
   const limits = new Map<string, number>([[from, Infinity]]);
+  // Produit des rapports cycliques rencontrés : deux hacheurs en série ne
+  // laissent passer que le produit de leurs fractions de temps.
+  const duties = new Map<string, number>([[from, 1]]);
   const done = new Set<string>();
   for (;;) {
     let cur: string | null = null;
@@ -651,6 +667,7 @@ function minOhmsPath(
         reached.net = cur;
         reached.drop = drops.get(cur) ?? 0;
         reached.limitAmps = limits.get(cur) ?? Infinity;
+        reached.duty = duties.get(cur) ?? 1;
       }
       return best;
     }
@@ -664,6 +681,7 @@ function minOhmsPath(
         dist.set(e.to, d);
         drops.set(e.to, (drops.get(cur) ?? 0) + (e.drop ?? 0));
         limits.set(e.to, Math.min(limits.get(cur) ?? Infinity, e.limitAmps ?? Infinity));
+        duties.set(e.to, (duties.get(cur) ?? 1) * (e.duty ?? 1));
       }
     }
   }
@@ -882,7 +900,10 @@ function computeResistiveGraph(
   for (const b of activeBridges) {
     const a = nets.netOf({ partId: b.partId, pin: b.a });
     const k = nets.netOf({ partId: b.partId, pin: b.b });
-    const edge = { ohms: b.ohms ?? 0, partId: b.partId, drop: b.drop, limitAmps: b.limitAmps };
+    const edge = {
+      ohms: b.ohms ?? 0, partId: b.partId, drop: b.drop, limitAmps: b.limitAmps,
+      ...(b.duty !== undefined ? { duty: b.duty } : {}),
+    };
     if (b.oneWay) {
       link(a, k, { ...edge, oneWay: true, forward: true });
       link(k, a, { ...edge, oneWay: true, forward: false });
@@ -1557,6 +1578,46 @@ export function meterReadings(
     return kind === 'meter' || kind === 'scope';
   });
   if (meters.length === 0) return [];
+  // Hachage en cours (transistor commandé en PWM) : la mesure est la moyenne
+  // temporelle des deux circuits, pont fermé et pont ouvert. Un appareil qui ne
+  // lit rien dans l'un des deux (prise en l'air) ne lit rien du tout.
+  return averagedOverChopping(
+    () => readMetersOnce(diagram, meters, vcc, drive, psuVolts, liveOhms, pwmVolts),
+    (ferme, ouvert, duty) => {
+      const parOuvert = new Map(ouvert.map((m) => [m.partId, m]));
+      return ferme.map((m) => {
+        // Rien à mesurer pont FERMÉ : l'appareil a une prise en l'air, le
+        // hachage n'y change rien.
+        if (m.value === null) return m;
+        const o = parOuvert.get(m.partId);
+        // Rien pont OUVERT, c'est normal et c'est même le propre du hachage :
+        // le circuit est coupé pendant (1−α). L'appareil ne lit alors que zéro
+        // — un ampèremètre dans une branche coupée ne voit passer aucun
+        // courant, un voltmètre sur un montage sans source lit zéro volt.
+        const repos = o && o.value !== null ? o.value : 0;
+        return {
+          ...m,
+          value: m.value * duty + repos * (1 - duty),
+          // Le court-circuit d'un ampèremètre reste un court-circuit même s'il
+          // n'a lieu qu'une fraction du temps : le montage est faux.
+          fault: m.fault || o?.fault || '',
+        };
+      });
+    }
+  );
+}
+
+/** Une passe de mesure sur le circuit TEL QU'IL EST : les ponts commandés en
+ *  place, sans moyenne de hachage (cf. meterReadings, qui l'appelle deux fois). */
+function readMetersOnce(
+  diagram: Diagram,
+  meters: readonly Part[],
+  vcc: number,
+  drive?: (pin: string) => PinDrive,
+  psuVolts?: (partId: string) => number | null,
+  liveOhms?: (part: Part) => number | null,
+  pwmVolts?: (pin: string) => number | null
+): MeterReading[] {
   const out: MeterReading[] = [];
   for (const meter of meters) {
     const mode = meterMode(meter);
@@ -1585,6 +1646,61 @@ export function meterReadings(
     out.push({ partId: meter.id, mode, value: amps, fault });
   }
   return out;
+}
+
+/**
+ * Rapport cyclique global du hachage en cours, ou null si rien n'est haché.
+ *
+ * Un transistor commandé en PWM ouvre et referme le circuit des milliers de fois
+ * par seconde. Il n'existe donc PAS d'état de repos unique à calculer : le
+ * montage passe son temps entre deux circuits différents, celui où le pont est
+ * fermé et celui où il est ouvert. Ce qu'affiche un voltmètre en continu — et ce
+ * qui fait tourner un moteur — est la MOYENNE temporelle des deux, pondérée par
+ * le rapport cyclique.
+ *
+ * Plusieurs hacheurs à des rapports différents ne se ramènent pas à une moyenne
+ * unique (il faudrait connaître leur déphasage) : on prend alors le plus faible,
+ * qui est celui qui limite.
+ */
+function chopperDuty(): number | null {
+  let duty: number | null = null;
+  for (const b of activeBridges) {
+    if (b.duty === undefined || b.duty >= 1) continue;
+    duty = duty === null ? b.duty : Math.min(duty, b.duty);
+  }
+  return duty;
+}
+
+/** La même liste de ponts, ceux qui HACHENT étant retirés : c'est le montage
+ *  pendant la partie basse du cycle, transistor bloqué. */
+function bridgesOpenChoppers(): ActiveBridge[] {
+  return activeBridges.filter((b) => b.duty === undefined || b.duty >= 1);
+}
+
+/**
+ * Joue `calcul` sur les deux circuits d'un hachage (pont fermé, puis pont
+ * ouvert) et rend la moyenne temporelle des deux résultats. Sans hachage en
+ * cours, `calcul` n'est joué qu'une fois — aucun coût ajouté au cas courant.
+ *
+ * Les ponts sont posés dans une variable de module et le cache de frame en
+ * dépend : la liste d'origine est donc remise en place avant de rendre la main,
+ * quoi qu'il arrive.
+ */
+function averagedOverChopping<T>(
+  calcul: () => T,
+  melange: (ferme: T, ouvert: T, duty: number) => T
+): T {
+  const duty = chopperDuty();
+  if (duty === null) return calcul();
+  const initial = activeBridges;
+  const ferme = calcul();
+  try {
+    setActiveBridges(bridgesOpenChoppers());
+    const ouvert = calcul();
+    return melange(ferme, ouvert, duty);
+  } finally {
+    setActiveBridges(initial);
+  }
 }
 
 /**
@@ -1634,6 +1750,10 @@ export interface FanCircuit {
   ohms: number;
   /** Broche MCU alimentant « + », si la source est une sortie de carte (PWM). */
   mcuPin: string | null;
+  /** `supplyVolts` porte DÉJÀ le hachage d'un transistor de commande présent sur
+   *  la maille : l'appelant ne doit pas appliquer de rapport cyclique en plus,
+   *  il le compterait au carré. */
+  chopped?: boolean;
 }
 
 /**
@@ -1674,8 +1794,8 @@ function dcLoadCircuit(
   // le moteur, trouve une masse par sa borne opposée, et un moteur câblé à
   // l'envers semblait alimenté (`ohms` incluait sa propre résistance).
   const adj = withoutPart(full, partId);
-  const reached: { net?: string; drop?: number; limitAmps?: number } = {};
-  const sink: { net?: string; drop?: number; limitAmps?: number } = {};
+  const reached: { net?: string; drop?: number; limitAmps?: number; duty?: number } = {};
+  const sink: { net?: string; drop?: number; limitAmps?: number; duty?: number } = {};
   const hiNet = nets.netOf({ partId, pin: hiPin });
   const loNet = nets.netOf({ partId, pin: loPin });
   const up = minOhmsPath(hiNet, new Set([...digitalNets, ...vccNets]), adj, undefined, reached, 'source');
@@ -1685,12 +1805,22 @@ function dcLoadCircuit(
   // Les diodes du chemin prélèvent leur tension de seuil au passage ; un
   // transistor sur la maille ne transmet que Gain × Ib (s'il ne sature pas, la
   // charge est affamée — c'est le montage aval qui ne marche pas).
-  const supplyVolts = Math.max(0, src.volts - (reached.drop ?? 0) - (sink.drop ?? 0));
+  // Un transistor HACHÉ sur la maille (commande PWM) ne referme le circuit
+  // qu'une fraction du temps : la charge ne voit que cette fraction de la
+  // tension. C'est le même chiffre que lit le voltmètre à ses bornes, et il
+  // n'existe qu'un modèle pour les deux.
+  const chop = (reached.duty ?? 1) * (sink.duty ?? 1);
+  const supplyVolts =
+    Math.max(0, src.volts - (reached.drop ?? 0) - (sink.drop ?? 0)) * chop;
   const supplyAmps = Math.min(src.amps, reached.limitAmps ?? Infinity, sink.limitAmps ?? Infinity);
   // `nets` accompagne le résultat : hiNet/loNet ne veulent rien dire dans une
   // AUTRE netlist (les identifiants de net dépendent du graphe construit), et
   // l'appelant a besoin d'y chercher la diode de roue libre et le transistor.
-  return { supplyVolts, supplyAmps, ohms: up + down, mcuPin: src.mcuPin, hiNet, loNet, nets };
+  return {
+    supplyVolts, supplyAmps, ohms: up + down, mcuPin: src.mcuPin,
+    ...(chop < 1 ? { chopped: true } : {}),
+    hiNet, loNet, nets,
+  };
 }
 
 /**
@@ -1827,7 +1957,12 @@ export function motorStates(
     }
     // Le moteur est vu comme sa résistance à vide, en série avec le circuit.
     const rMotor = rated / noLoad;
-    const applied = circuit.supplyVolts * Math.max(0, Math.min(1, duty?.(circuit.mcuPin) ?? 1));
+    // `supplyVolts` porte DÉJÀ le hachage quand un transistor de commande est sur
+    // la maille (cf. dcLoadCircuit) : le rapport cyclique ne se demande alors
+    // pas ici, on le compterait au carré. Il reste demandé dans l'autre cas,
+    // celui d'une broche qui alimente le moteur sans transistor.
+    const pwm = circuit.chopped ? 1 : Math.max(0, Math.min(1, duty?.(circuit.mcuPin) ?? 1));
+    const applied = circuit.supplyVolts * pwm;
     if (applied <= 0) {
       out.push({ ...idle, powered: true });
       continue;
@@ -1948,6 +2083,12 @@ export interface TransistorState {
   /** MOSFET : tension réellement présente sur la grille par rapport à la source
    *  (V). C'est elle qui doit dépasser Vgs(th) pour ouvrir le canal. */
   gateVolts?: number;
+  /** Broche numérique de la carte qui COMMANDE ce transistor (celle qui attaque
+   *  la base ou la grille), ou null si personne ne le pilote depuis le
+   *  programme. C'est elle qu'il faut surveiller en rapport cyclique : un
+   *  transistor haché en PWM ne conduit qu'une fraction du temps, et tout ce
+   *  qu'il alimente n'en reçoit que la moyenne. */
+  gatePin?: string | null;
 }
 
 /** Ce qui empêche un relais de coller. */
@@ -2081,11 +2222,17 @@ export function transistorStates(
     const ohms = mos ? Math.max(0, numAttr(part, 'rdson', RDSON_DEFAULT)) : 0;
     const level = (pin: string): Level =>
       netLevel(diagram, nets, nets.netOf({ partId: part.id, pin }), readPin);
+    // Broche de carte qui attaque la commande : directement sur la base/grille,
+    // ou de l'autre côté de la résistance de base (le montage habituel). Sans
+    // elle, personne ne peut hacher ce transistor depuis le programme.
+    const gatePin = commandPin(diagram, g, part, pins.b);
     const on = npn
       ? level(pins.b) === 1 && level(pins.e) === 0
       : level(pins.b) === 0 && level(pins.e) === 1;
     if (!on) {
-      out.push({ partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop, ohms });
+      out.push({
+        partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop, ohms, gatePin,
+      });
       continue;
     }
     // MOSFET : la grille est ISOLÉE, rien n'y entre — pas de maille de base, pas
@@ -2102,7 +2249,7 @@ export function transistorStates(
       out.push({
         partId: part.id, npn, mos, on: passe, baseAmps: 0,
         maxCollectorAmps: passe ? numAttr(part, 'icmax', 0.5) : 0,
-        drop, ohms, gateVolts: gate ?? undefined,
+        drop, ohms, gateVolts: gate ?? undefined, gatePin,
       });
       continue;
     }
@@ -2128,10 +2275,57 @@ export function transistorStates(
     const gain = numAttr(part, 'gain', 100);
     out.push({
       partId: part.id, npn, mos, on: baseAmps > 0, baseAmps,
-      maxCollectorAmps: gain * baseAmps, drop, ohms,
+      maxCollectorAmps: gain * baseAmps, drop, ohms, gatePin,
     });
   }
   return out;
+}
+
+/**
+ * Broche numérique de carte qui COMMANDE un transistor : celle qui attaque sa
+ * base (ou sa grille), directement ou à travers la résistance de base — le
+ * montage habituel, où la broche n'est jamais sur le net de la base.
+ *
+ * On remonte donc le graphe résistif depuis la base, en s'arrêtant au premier
+ * net numérique rencontré. Le parcours ne traverse ni les rails (VCC et GND
+ * sont des équipotentielles, pas des chemins) ni les ponts commandés : sans
+ * cela on ressortirait par le collecteur d'un autre transistor, sur une broche
+ * qui ne commande rien ici.
+ *
+ * Sert au rapport cyclique : un transistor haché en PWM ne conduit qu'une
+ * fraction du temps, et tout ce qu'il alimente n'en reçoit que la moyenne.
+ */
+function commandPin(
+  diagram: Diagram,
+  g: ResistiveGraph,
+  part: Part,
+  basePin: string
+): string | null {
+  const depart = g.nets.netOf({ partId: part.id, pin: basePin });
+  const direct = mcuDigitalOnNet(diagram, g.nets, depart);
+  if (direct !== null) return direct;
+  const vus = new Set<string>([depart]);
+  let bord = [depart];
+  // Largeur d'abord : la broche la plus PROCHE de la base est celle qui la
+  // commande, pas une autre trouvée plus loin dans le montage.
+  while (bord.length > 0) {
+    const suivant: string[] = [];
+    for (const net of bord) {
+      for (const e of g.adj.get(net) ?? []) {
+        if (vus.has(e.to)) continue;
+        vus.add(e.to);
+        // Un pont commandé n'est pas un chemin de commande : il mène au
+        // collecteur d'un autre transistor, donc à la broche qui pilote CELUI-LÀ.
+        if (activeBridges.some((b) => b.partId === e.partId)) continue;
+        if (g.vccNets.has(e.to) || g.gndNets.has(e.to)) continue;
+        const pin = mcuDigitalOnNet(diagram, g.nets, e.to);
+        if (pin !== null) return pin;
+        suivant.push(e.to);
+      }
+    }
+    bord = suivant;
+  }
+  return null;
 }
 
 /**
@@ -2301,13 +2495,17 @@ export function commandedBridges(
   readPin: (name: string) => boolean,
   vcc: number,
   psuVolts?: (partId: string) => number | null,
-  liveOhms?: (part: Part) => number | null
+  liveOhms?: (part: Part) => number | null,
+  pwmDuty?: (pin: string) => number | null
 ): ActiveBridge[] {
   const out: ActiveBridge[] = [];
   for (const st of transistorStates(diagram, readPin, vcc, psuVolts, liveOhms)) {
     if (!st.on) continue;
     const part = diagram.parts.find((p) => p.id === st.partId)!;
     const pins = transistorPins(part);
+    // Commande hachée : le transistor ne conduit qu'une fraction du temps, et
+    // ce qu'il alimente n'en reçoit que la moyenne.
+    const duty = st.gatePin ? pwmDuty?.(st.gatePin) ?? null : null;
     // Le courant entre par le collecteur (NPN) ou par l'émetteur (PNP).
     out.push({
       partId: st.partId,
@@ -2317,6 +2515,7 @@ export function commandedBridges(
       ohms: st.ohms,
       limitAmps: st.maxCollectorAmps,
       oneWay: true,
+      ...(duty !== null ? { duty } : {}),
     });
   }
   for (const st of relayStates(diagram, readPin, vcc, psuVolts, liveOhms)) {

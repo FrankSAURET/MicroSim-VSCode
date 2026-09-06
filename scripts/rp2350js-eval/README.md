@@ -1,6 +1,6 @@
 # Évaluation de `c1570/rp2350js` — bancs et correctifs (21-22 août 2026)
 
-Matériel de la piste 7/8 de [`roadmap.md`](../../roadmap.md). Verdict détaillé :
+Matériel de la piste 7/8 de l'ancien `roadmap.md` (supprimé le 6 septembre 2026). Verdict détaillé :
 [`vitesse-pico.md`](../vitesse-pico.md) §15. Rien ici n'est branché dans
 `verify:all` — ce sont des bancs à rejouer **hors de Kablix**, contre un clone du
 fork, le jour où l'on re-sonde le projet.

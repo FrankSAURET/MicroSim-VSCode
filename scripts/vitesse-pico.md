@@ -900,7 +900,7 @@ interpréteur, et il faudra les mesurer avec ce banc-ci.
 
 ## 15. `rp2350js` évalué — leur Pico 2 tourne à 70 % de notre Pico 1 (21-22 août 2026)
 
-Pistes 7 et 8 de [`roadmap.md`](../roadmap.md). Évaluation faite **hors de
+Pistes 7 et 8 de l'ancien `roadmap.md` (supprimé le 6 septembre 2026). Évaluation faite **hors de
 Kablix**, contre un clone de [`c1570/rp2350js`](https://github.com/c1570/rp2350js)
 (MIT, dernier commit du 13/08/2026, 50 commits sur six mois, 25 737 lignes de TS
 hors tests). Bancs, correctifs et mode d'emploi :

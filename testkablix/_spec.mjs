@@ -2726,6 +2726,244 @@ void loop() {
 `,
   }),
 
+  // BANC DE MESURE : cinq montages sur une seule planche, chacun avec ses
+  // appareils. C'est le test qui répond à « qu'est-ce qu'on mesure, et où ? ».
+  //   1. VARIATEUR : moteur commandé par un PN2222A haché en PWM, alimenté par
+  //      l'alimentation de laboratoire, diode de roue libre en travers. M1
+  //      (voltmètre) est aux bornes du moteur, M2 (ampèremètre) EN SÉRIE dans
+  //      son alimentation, O1 (oscilloscope) sur la base du transistor. Le
+  //      rapport cyclique se lit sur M1 et M2 — à 50 %, ils affichent la
+  //      moitié — mais PAS sur O1, qui montre le créneau, pas sa moyenne.
+  //   2. VENTILATEUR sur la même alimentation, M3 à ses bornes : 850 mA
+  //      affaissent l'alimentation, et le voltmètre le montre.
+  //   3. RELAIS commandé par un second transistor, M4 aux bornes de sa bobine.
+  //   4. POTENTIOMÈTRE en pont sur l'alimentation, M5 sur son curseur.
+  // Les six appareils mesurent EN MÊME TEMPS : aucun ne perturbe les autres.
+  test({
+    name: 'mesure-uno', board: 'uno', ext: 'ino',
+    parts: [
+      MCU('uno'),
+      { id: 'Alim1', type: 'alim', x: 620, y: 640, attrs: { voltage: '5', maxcurrent: '2' } },
+      // 1. variateur à transistor
+      { id: 'R1', type: 'resistor', x: 300, y: 180, attrs: { value: '1000' } },
+      { id: 'T1', type: 'pn2222a', x: 440, y: 200 },
+      { id: 'Act1', type: 'moteur-dc', x: 640, y: 40, attrs: { voltage: '5', current: '0.1' } },
+      { id: 'D1', type: 'diode', x: 820, y: 140, attrs: { vf: '0.6' } },
+      { id: 'M1', type: 'multimetre', x: 960, y: 40, attrs: { mode: 'voltage' } },
+      { id: 'M2', type: 'multimetre', x: 960, y: 300, attrs: { mode: 'current' } },
+      { id: 'O1', type: 'oscillo', x: 260, y: 400, attrs: { voltsdiv: '1', sdiv: '0.001' } },
+      // 2. ventilateur
+      { id: 'Act2', type: 'ventilo', x: 1280, y: 40, attrs: { voltage: '5', current: '0.85' } },
+      { id: 'M3', type: 'multimetre', x: 1540, y: 40, attrs: { mode: 'voltage' } },
+      // 3. relais
+      { id: 'R2', type: 'resistor', x: 300, y: 760, attrs: { value: '1000' } },
+      { id: 'T2', type: 'pn2222a', x: 440, y: 780 },
+      { id: 'Rl1', type: 'relais', x: 640, y: 900, attrs: { voltage: '5' } },
+      { id: 'D2', type: 'diode', x: 820, y: 840 },
+      { id: 'M4', type: 'multimetre', x: 960, y: 900, attrs: { mode: 'voltage' } },
+      // 4. potentiomètre
+      { id: 'Pot1', type: 'pot', x: 1280, y: 640, attrs: { min: '0', max: '100', value: '50' } },
+      { id: 'M5', type: 'multimetre', x: 1540, y: 640, attrs: { mode: 'voltage' } },
+    ],
+    wires: () => [
+      // 1. variateur : D9 -> 1 kΩ -> base ; moteur entre l'alim et le collecteur.
+      w('R1', '1', 'U1', '9', 'green'),
+      w('R1', '2', 'T1', 'B', 'green'),
+      w('T1', 'E', 'U1', 'GND.1', 'black'),
+      w('T1', 'C', 'Act1', '2', 'blue'),
+      // L'ampèremètre est EN SÉRIE : il coupe le fil d'alimentation du moteur.
+      w('M2', '+', 'Alim1', 'V+', 'red'),
+      w('M2', 'GND', 'Act1', '1', 'red'),
+      w('Alim1', 'GND', 'U1', 'GND.2', 'black'),
+      // Roue libre : sans elle, couper la bobine du moteur claque le transistor.
+      w('D1', 'K', 'Act1', '1', 'purple'),
+      w('D1', 'A', 'Act1', '2', 'purple'),
+      w('M1', '+', 'Act1', '1', 'red'),
+      w('M1', 'GND', 'Act1', '2', 'blue'),
+      w('O1', '+', 'T1', 'B', 'yellow'),
+      w('O1', 'GND', 'U1', 'GND.2', 'black'),
+      // 2. ventilateur sur l'alim, voltmètre à ses bornes.
+      w('Act2', '+', 'Alim1', 'V+', 'red'),
+      w('Act2', '-', 'Alim1', 'GND', 'black'),
+      w('M3', '+', 'Act2', '+', 'red'),
+      w('M3', 'GND', 'Act2', '-', 'black'),
+      // 3. relais commandé par T2, voltmètre aux bornes de la bobine.
+      w('R2', '1', 'U1', '8', 'orange'),
+      w('R2', '2', 'T2', 'B', 'orange'),
+      w('T2', 'E', 'U1', 'GND.3', 'black'),
+      w('T2', 'C', 'Rl1', 'B2', 'blue'),
+      w('Rl1', 'B1', 'U1', '5V', 'red'),
+      w('D2', 'K', 'Rl1', 'B1', 'red'),
+      w('D2', 'A', 'Rl1', 'B2', 'blue'),
+      w('M4', '+', 'Rl1', 'B1', 'red'),
+      w('M4', 'GND', 'Rl1', 'B2', 'blue'),
+      // 4. potentiomètre en pont sur l'alim, voltmètre sur le curseur.
+      w('Pot1', 'VCC', 'Alim1', 'V+', 'red'),
+      w('Pot1', 'SIG', 'U1', 'A0', 'green'),
+      w('Pot1', 'GND', 'U1', 'GND.1', 'black'),
+      w('M5', '+', 'Pot1', 'SIG', 'green'),
+      w('M5', 'GND', 'Pot1', 'GND', 'black'),
+    ],
+    expect: {
+      kind: 'meter', volts: 5, bridges: true,
+      drive: { 9: 'high', 8: 'high' },
+      pwm: { 9: 0.5 },
+      readings: [
+        // Le transistor ne conduit que la moitié du temps : le moteur ne reçoit
+        // que la moitié de la tension et n'appelle que la moitié du courant.
+        { partId: 'M1', mode: 'voltage', value: 2.303, tol: 0.02 },
+        { partId: 'M2', mode: 'current', value: 0.040075, tol: 0.002 },
+        // Le ventilateur tire 850 mA : l'alimentation s'affaisse sous 3,7 V.
+        { partId: 'M3', mode: 'voltage', value: 3.703, tol: 0.02 },
+        { partId: 'M4', mode: 'voltage', value: 4.724, tol: 0.02 },
+        { partId: 'M5', mode: 'voltage', value: 1.837, tol: 0.02 },
+        // L'oscilloscope ne lisse RIEN : il donne la hauteur du créneau.
+        { partId: 'O1', mode: 'voltage', value: 4.337, tol: 0.02 },
+      ],
+    },
+    code: `// BANC DE MESURE : cinq montages sur une planche, six appareils dessus.
+//
+//   M1 VOLTMETRE   aux bornes du moteur       -> suit le rapport cyclique
+//   M2 AMPEREMETRE en serie sur son alim      -> suit le rapport cyclique
+//   O1 OSCILLOSCOPE sur la base du transistor -> montre le creneau, pas sa moyenne
+//   M3 VOLTMETRE   aux bornes du ventilateur  -> l'alim s'affaisse sous 850 mA
+//   M4 VOLTMETRE   aux bornes de la bobine    -> le relais colle vers 4,7 V
+//   M5 VOLTMETRE   sur le curseur du pot      -> la moitie de la tension d'alim
+//
+// Le programme fait monter le rapport cyclique de D9 par paliers. Regarde M1 et
+// M2 suivre pendant que O1 garde la meme hauteur de creneau : c'est TOUTE la
+// difference entre les deux appareils. Le multimetre moyenne, l'oscilloscope
+// montre. Un moteur hache a 50 % lit 2,3 V au voltmetre, mais ne voit jamais
+// 2,3 V : il voit du 4,6 V une fois sur deux.
+const int VARIATEUR = 9;   // base du transistor, a travers 1 kohm
+const int RELAIS = 8;      // base du second transistor
+const int CURSEUR = A0;    // curseur du potentiometre
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(VARIATEUR, OUTPUT);
+  pinMode(RELAIS, OUTPUT);
+  digitalWrite(RELAIS, HIGH);   // le relais colle et reste colle
+  Serial.println("Banc de mesure : M1/M2 suivent le rapport cyclique, O1 non.");
+}
+
+void loop() {
+  for (int pourcent = 0; pourcent <= 100; pourcent += 25) {
+    analogWrite(VARIATEUR, (pourcent * 255) / 100);
+    delay(1200);
+    Serial.print("rapport cyclique ");
+    Serial.print(pourcent);
+    Serial.print(" %  |  curseur = ");
+    Serial.println(analogRead(CURSEUR));
+  }
+}
+`,
+  }),
+
+  // Même banc sur Pico. Tout ce qui pend à l'alimentation de laboratoire lit la
+  // MÊME chose que sur la Uno — la carte ne fait que commander les transistors.
+  // Seule la bobine du relais, câblée sur le 3,3 V de la carte, change de valeur.
+  test({
+    name: 'mesure-pico', board: 'pico', ext: 'py',
+    parts: [
+      MCU('pico'),
+      { id: 'Alim1', type: 'alim', x: 620, y: 640, attrs: { voltage: '5', maxcurrent: '2' } },
+      { id: 'R1', type: 'resistor', x: 300, y: 180, attrs: { value: '1000' } },
+      { id: 'T1', type: 'pn2222a', x: 440, y: 200 },
+      { id: 'Act1', type: 'moteur-dc', x: 640, y: 40, attrs: { voltage: '5', current: '0.1' } },
+      { id: 'D1', type: 'diode', x: 820, y: 140, attrs: { vf: '0.6' } },
+      { id: 'M1', type: 'multimetre', x: 960, y: 40, attrs: { mode: 'voltage' } },
+      { id: 'M2', type: 'multimetre', x: 960, y: 300, attrs: { mode: 'current' } },
+      { id: 'O1', type: 'oscillo', x: 260, y: 400, attrs: { voltsdiv: '1', sdiv: '0.001' } },
+      { id: 'Act2', type: 'ventilo', x: 1280, y: 40, attrs: { voltage: '5', current: '0.85' } },
+      { id: 'M3', type: 'multimetre', x: 1540, y: 40, attrs: { mode: 'voltage' } },
+      { id: 'R2', type: 'resistor', x: 300, y: 760, attrs: { value: '1000' } },
+      { id: 'T2', type: 'pn2222a', x: 440, y: 780 },
+      { id: 'Rl1', type: 'relais', x: 640, y: 900, attrs: { voltage: '5' } },
+      { id: 'D2', type: 'diode', x: 820, y: 840 },
+      { id: 'M4', type: 'multimetre', x: 960, y: 900, attrs: { mode: 'voltage' } },
+      { id: 'Pot1', type: 'pot', x: 1280, y: 640, attrs: { min: '0', max: '100', value: '50' } },
+      { id: 'M5', type: 'multimetre', x: 1540, y: 640, attrs: { mode: 'voltage' } },
+    ],
+    wires: () => [
+      w('R1', '1', 'U1', 'GP15', 'green'),
+      w('R1', '2', 'T1', 'B', 'green'),
+      w('T1', 'E', 'U1', 'GND.1', 'black'),
+      w('T1', 'C', 'Act1', '2', 'blue'),
+      w('M2', '+', 'Alim1', 'V+', 'red'),
+      w('M2', 'GND', 'Act1', '1', 'red'),
+      w('Alim1', 'GND', 'U1', 'GND.2', 'black'),
+      w('D1', 'K', 'Act1', '1', 'purple'),
+      w('D1', 'A', 'Act1', '2', 'purple'),
+      w('M1', '+', 'Act1', '1', 'red'),
+      w('M1', 'GND', 'Act1', '2', 'blue'),
+      w('O1', '+', 'T1', 'B', 'yellow'),
+      w('O1', 'GND', 'U1', 'GND.8', 'black'),
+      w('Act2', '+', 'Alim1', 'V+', 'red'),
+      w('Act2', '-', 'Alim1', 'GND', 'black'),
+      w('M3', '+', 'Act2', '+', 'red'),
+      w('M3', 'GND', 'Act2', '-', 'black'),
+      w('R2', '1', 'U1', 'GP14', 'orange'),
+      w('R2', '2', 'T2', 'B', 'orange'),
+      w('T2', 'E', 'U1', 'GND.3', 'black'),
+      w('T2', 'C', 'Rl1', 'B2', 'blue'),
+      w('Rl1', 'B1', 'U1', '3V3', 'red'),
+      w('D2', 'K', 'Rl1', 'B1', 'red'),
+      w('D2', 'A', 'Rl1', 'B2', 'blue'),
+      w('M4', '+', 'Rl1', 'B1', 'red'),
+      w('M4', 'GND', 'Rl1', 'B2', 'blue'),
+      w('Pot1', 'VCC', 'Alim1', 'V+', 'red'),
+      w('Pot1', 'SIG', 'U1', 'GP26', 'green'),
+      w('Pot1', 'GND', 'U1', 'GND.7', 'black'),
+      w('M5', '+', 'Pot1', 'SIG', 'green'),
+      w('M5', 'GND', 'Pot1', 'GND', 'black'),
+    ],
+    expect: {
+      kind: 'meter', volts: 3.3, bridges: true,
+      drive: { GP15: 'high', GP14: 'high' },
+      pwm: { GP15: 0.5 },
+      readings: [
+        // Moteur, ventilateur et potentiomètre pendent à l'alimentation de
+        // laboratoire : mêmes valeurs que sur la Uno, au bruit d'alim près.
+        { partId: 'M1', mode: 'voltage', value: 2.303, tol: 0.02 },
+        { partId: 'M2', mode: 'current', value: 0.040075, tol: 0.002 },
+        { partId: 'M3', mode: 'voltage', value: 3.714, tol: 0.02 },
+        // La bobine, elle, est sur le 3,3 V de la carte : elle voit moins.
+        { partId: 'M4', mode: 'voltage', value: 3.051, tol: 0.02 },
+        { partId: 'M5', mode: 'voltage', value: 1.849, tol: 0.02 },
+        { partId: 'O1', mode: 'voltage', value: 2.649, tol: 0.02 },
+      ],
+    },
+    code: `# BANC DE MESURE : cinq montages sur une planche, six appareils dessus.
+#
+#   M1 VOLTMETRE   aux bornes du moteur       -> suit le rapport cyclique
+#   M2 AMPEREMETRE en serie sur son alim      -> suit le rapport cyclique
+#   O1 OSCILLOSCOPE sur la base du transistor -> montre le creneau, pas sa moyenne
+#   M3 VOLTMETRE   aux bornes du ventilateur  -> l'alim s'affaisse sous 850 mA
+#   M4 VOLTMETRE   aux bornes de la bobine    -> sur le 3,3 V de la carte
+#   M5 VOLTMETRE   sur le curseur du pot      -> la moitie de la tension d'alim
+#
+# Regarde M1 et M2 suivre le rapport cyclique pendant que O1 garde la meme
+# hauteur de creneau : le multimetre moyenne, l'oscilloscope montre.
+from machine import Pin, PWM, ADC
+import time
+
+variateur = PWM(Pin(15))
+variateur.freq(1000)
+relais = Pin(14, Pin.OUT)
+curseur = ADC(26)
+
+relais.value(1)          # le relais colle et reste colle
+print("Banc de mesure : M1/M2 suivent le rapport cyclique, O1 non.")
+
+while True:
+    for pourcent in range(0, 101, 25):
+        variateur.duty_u16(pourcent * 65535 // 100)
+        time.sleep_ms(1200)
+        print("rapport cyclique", pourcent, "%  |  curseur =", curseur.read_u16())
+`,
+  }),
+
   // Barrière optique infrarouge : sortie à COLLECTEUR OUVERT, donc rappel
   // obligatoire — ici en externe (10 kΩ vers 5 V), le montage des fiches DFRobot.
   // Les DEUX boîtiers sont alimentés : l'émetteur sans courant n'éclaire rien et

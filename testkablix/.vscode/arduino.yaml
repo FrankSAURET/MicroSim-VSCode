@@ -1,4 +1,4 @@
 board: arduino:avr:uno
-sketch: Arduino/blink-uno/blink-uno.ino
+sketch: Arduino/pot-uno/pot-uno.ino
 port: COM3
 output: .build

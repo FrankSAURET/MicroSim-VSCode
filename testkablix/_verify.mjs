@@ -74,11 +74,11 @@ const { model, catalog } = await bundleDiagram();
  * un pont ferme un circuit, ce qui change des niveaux, donc l'état des autres
  * ponts. Même boucle que sim.mts — trois tours suffisent largement.
  */
-function resolveBridges(diagram, read, vcc) {
+function resolveBridges(diagram, read, vcc, duty) {
   model.setActiveBridges([]);
   let signature = model.bridgeSignature([]);
   for (let pass = 0; pass < 3; pass++) {
-    const list = model.commandedBridges(diagram, read, vcc);
+    const list = model.commandedBridges(diagram, read, vcc, undefined, undefined, duty);
     const next = model.bridgeSignature(list);
     model.setActiveBridges(list);
     if (next === signature) break;
@@ -423,7 +423,17 @@ for (const t of TESTS) {
         // microcontrôleur, la mesure n'est donc jamais tout à fait le calcul de
         // papier.
         const etats = e.drive ?? {};
+        // Un montage à transistor ou à relais ne se mesure QUE ponts résolus :
+        // sans eux le circuit est ouvert et l'appareil ne lit rien. `pwm` donne
+        // en plus le rapport cyclique des broches qui hachent — un transistor
+        // commandé en PWM ne conduit qu'une fraction du temps, et ce qu'il
+        // alimente n'en reçoit que la moyenne.
+        const pwm = e.pwm ?? {};
+        const duty = (pin) => pwm[pin] ?? null;
+        model.setActiveBridges([]);
+        if (e.bridges) resolveBridges(diagram, (p) => etats[p] === 'high', e.volts, duty);
         const lus = model.meterReadings(diagram, e.volts, (p) => etats[p] ?? 'hiz');
+        model.setActiveBridges([]); // pas de fuite d'état d'un test au suivant
         for (const r of e.readings) {
           const m = lus.find((x) => x.partId === r.partId);
           check(`${t.name} : multimètre ${r.partId} trouvé`, !!m, JSON.stringify(lus));

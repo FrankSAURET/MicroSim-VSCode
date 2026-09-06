@@ -1335,6 +1335,12 @@ function resolveBridges(): void {
   pushPotFractions();
   const read = (name: string): boolean => engine!.readDigital(name);
   const vcc = isPicoBoard(board) ? 3.3 : 5;
+  // Rapport cyclique d'une broche qui HACHE : un transistor commandé en PWM ne
+  // conduit qu'une fraction du temps, et tout ce qu'il alimente n'en reçoit que
+  // la moyenne. Sans ça, un moteur piloté par transistor recevait la tension
+  // pleine quelle que soit la consigne du programme.
+  const duty = (pin: string): number | null =>
+    engine!.pulseActive?.(pin) ? engine!.readPwmDuty?.(pin) ?? null : null;
   // Contacts fermés à la main : ils ne dépendent d'aucun niveau, donc ils sont
   // posés une fois pour toute la résolution et s'ajoutent aux ponts commandés.
   const contacts = manualContacts(editor.diagram, contactState);
@@ -1343,7 +1349,10 @@ function resolveBridges(): void {
   icFrame = [];
   let signature = `${bridgeSignature(contacts)}#${gateDriveSignature([])}`;
   for (let pass = 0; pass < 3; pass++) {
-    const list = [...contacts, ...commandedBridges(editor.diagram, read, vcc, psuLiveVolts, liveVariableOhms)];
+    const list = [
+      ...contacts,
+      ...commandedBridges(editor.diagram, read, vcc, psuLiveVolts, liveVariableOhms, duty),
+    ];
     // Les circuits intégrés entrent dans le MÊME point fixe : la sortie d'une
     // porte peut commander un transistor, et le contact d'un relais alimenter
     // le boîtier. Trois tours suffisent aux cascades habituelles.
