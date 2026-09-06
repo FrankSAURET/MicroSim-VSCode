@@ -688,7 +688,9 @@ Three safeguards here too:
 - **Nothing is written** when the matching extension is not installed, or when everything is already in place.
 - **Once per board and per folder**: reopening a project does not redo the work.
 
-This automatic work is **silent**. When it is not enough, the command palette (`Ctrl+Shift+P`) offers **Kablix: Fix code analysis for this board**: it redoes the work on demand **and says what is missing** — extension to install, `.ino` sketch to open first, settings written, or "everything is already in place, reload the window".
+This automatic work is **silent**: Kablix writes the settings and says nothing. The **output panel**, on the other hand, belongs to the Arduino extension: it shows it whenever it compiles, including to build its IntelliSense configuration. Kablix does not close it — that would take over its own panel, and it would also hide the builds you ask for yourself.
+
+When it is not enough, the command palette (`Ctrl+Shift+P`) offers **Kablix: Fix code analysis for this board**: it redoes the work on demand **and says what is missing** — extension to install, `.ino` sketch to open first, settings written, or "everything is already in place, reload the window".
 
 > A **function declared in your own file** or a **library sitting next to it** (`grove_16_channels_pwm.py`) are found by Pylance on its own, with no setting at all. If they stay underlined, Pylance is not running yet: run the command above, then reload the window.
 

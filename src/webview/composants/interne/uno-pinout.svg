@@ -6600,25 +6600,5 @@
         </g>
       </g>
     </g>
-    <g
-       id="g26"
-       transform="translate(-39.108452,-36.845827)">
-      <circle
-         style="fill:#ff0000;stroke:#c01c28;stroke-width:1;stroke-linecap:square;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
-         id="path26"
-         cx="274.04727"
-         cy="158.98962"
-         r="3.375" />
-      <text
-         xml:space="preserve"
-         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;line-height:1;font-family:Arial;-inkscape-font-specification:Arial;writing-mode:lr-tb;direction:ltr;fill:#c01c28;stroke:none;stroke-width:1;stroke-linecap:square;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
-         x="270.3819"
-         y="153.82686"
-         id="text26"><tspan
-           sodipodi:role="line"
-           id="tspan26"
-           x="270.3819"
-           y="153.82686">0</tspan></text>
-    </g>
   </g>
 </svg>

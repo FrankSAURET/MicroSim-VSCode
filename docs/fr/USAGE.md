@@ -688,7 +688,7 @@ Trois garde-fous, là encore :
 - **Rien n'est écrit** si l'extension correspondante n'est pas installée, ou si tout est déjà en place.
 - **Une fois par carte et par dossier** : rouvrir un projet ne relance pas le travail.
 
-Ce travail automatique est **silencieux, fenêtre de sortie comprise**. L'extension Arduino affiche son panneau **à chaque compilation**, et la fabrication de la configuration IntelliSense en est une : choisir une carte faisait donc surgir la fenêtre de sortie. Kablix la referme derrière lui — tout de suite, puis encore quelques secondes plus tard, le temps que l'autre extension finisse sa re-analyse automatique. Passé ce délai il n'y touche plus : les boutons **Vérifier** et **Téléverser** ouvrent leur sortie comme d'habitude. Pour la voir quand même pendant la mise au point : réglage **`kablix.showArduinoOutput`** (inactif par défaut).
+Ce travail automatique est **silencieux** : Kablix ne rend pas la main avec un message, il pose les réglages et se tait. La **fenêtre de sortie**, elle, appartient à l'extension Arduino : elle l'affiche quand elle compile, y compris pour fabriquer sa configuration IntelliSense. Kablix ne la referme pas — ce serait lui prendre la main sur son propre panneau, et cela masquerait aussi les compilations que vous demandez vous-même.
 
 Quand il ne suffit pas, la palette de commandes (`Ctrl+Maj+P`) contient **Kablix : réparer l’analyse du code pour cette carte** : elle refait le travail à la demande **et dit ce qui manque** — extension à installer, sketch `.ino` à ouvrir d’abord, réglages posés, ou « tout est déjà en place, rechargez la fenêtre ».
 

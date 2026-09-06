@@ -60,6 +60,31 @@ if (existsSync(bundlePath)) {
 	ok('bundle : dist/webview.js présent (npm run build)', false, 'absent');
 }
 
+// --- 1 bis. w/h déclarés = viewBox réel du SVG livré --------------------------
+// Régression de la v2026.9.1.48 : Frank a redessiné le poster uno (viewBox passé
+// de 293×480 à 280×450) sans que `w`/`h` de POSTERS suivent. Le poster est posé à
+// `poster.w · f · s` : une largeur déclarée fausse l'étire, et TOUTES les
+// étiquettes glissent. Le contrôle vaut pour les 7 posters.
+{
+	const src = readFileSync(join(ROOT, 'src', 'webview', 'diagram', 'pinout.mts'), 'utf8');
+	for (const b of BOARDS) {
+		const svgTxt = existsSync(join(distPinout, `${b}.svg`))
+			? readFileSync(join(distPinout, `${b}.svg`), 'utf8').slice(0, 2000) : '';
+		const vb = /viewBox="([\d.\-\s]+)"/.exec(svgTxt)?.[1].trim().split(/\s+/).map(Number);
+		// `file:` permet à plusieurs cartes de partager un poster (pico2 → son propre SVG).
+		const ligne = new RegExp(`\\b${b}:\\s*\\{([^}]*)\\}`).exec(src)?.[1] ?? '';
+		const w = parseFloat(/\bw:\s*([\d.]+)/.exec(ligne)?.[1] ?? 'NaN');
+		const h = parseFloat(/\bh:\s*([\d.]+)/.exec(ligne)?.[1] ?? 'NaN');
+		const okW = vb && Math.abs(vb[2] - w) < 0.01 && Math.abs(vb[3] - h) < 0.01;
+		ok(`${b} : w/h de POSTERS = viewBox du SVG livré`, okW,
+			vb ? `viewBox ${vb[2]}×${vb[3]} vs déclaré ${w}×${h}` : 'viewBox illisible');
+		// Le crédit d'origine doit VOYAGER avec le dessin : SVGO efface les
+		// commentaires, esbuild.js le replace en tête du fichier livré (v2026.9.1.49).
+		ok(`${b} : crédit d'origine présent dans le SVG livré`,
+			/^<!--\s*Pinout:/.test(svgTxt), svgTxt.slice(0, 40).replace(/\n/g, ' '));
+	}
+}
+
 // --- 2. Comportement réel en navigateur --------------------------------------
 const posterBase = `file:///${distPinout.replace(/\\/g, '/')}`;
 const entry = `
@@ -157,6 +182,23 @@ async function run() {
 	ok('uno : mode align — posé sans étirement vertical',
 		!!ov2 && parseFloat(ov2.style.width) > 0 && !/scaleY/.test(ov2.style.transform || ''),
 		ov2 ? ov2.style.left + ',' + ov2.style.top + ' w=' + ov2.style.width : '');
+	if (ov2) {
+		// Le vrai contrôle du calage (v2026.9.1.49) : la DERNIÈRE tige de la
+		// rangée haute du poster (x = 237.53, bas de tige y = 135.06) doit tomber
+		// pile sur la patte 0 de la carte (280, 20). C'est ce qui avait lâché
+		// quand le poster est passé de 293×480 à 280×450 sans que w/h/tx/ty
+		// suivent : les étiquettes glissaient d'une trentaine de pixels.
+		const geo = pinoutPoster('uno');
+		const rU = editor.rendered.get(uno.id);
+		const board = (rU.el.shadowRoot ?? rU.el).querySelector('svg').getBoundingClientRect();
+		const po = ov2.getBoundingClientRect();
+		const k = po.width / geo.w;         // px écran par unité de poster
+		const kb = board.width / geo.cardW; // px écran par unité de carte
+		const dx = (po.left + 237.53 * k) - (board.left + 280 * kb);
+		const dy = (po.top + 135.06 * k) - (board.top + 20 * kb);
+		ok('uno : rangée haute du poster calée sur la patte 0',
+			Math.abs(dx) < 1 && Math.abs(dy) < 1, 'dx=' + dx.toFixed(2) + ' dy=' + dy.toFixed(2));
+	}
 	editor.toggleSelectedSchema();
 	await wait(60);
 

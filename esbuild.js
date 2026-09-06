@@ -43,9 +43,14 @@ function copyPinouts() {
   for (const [out, src] of Object.entries(PINOUTS)) {
     const source = fs.readFileSync(path.join(__dirname, src), 'utf8');
     const { data } = optimizeSvg(source, out);
+    // SVGO efface les commentaires : le crédit d'origine du poster (« Pinout:
+    // Arduino (modified) »…) disparaissait du fichier livré. On le replace en
+    // tête — il doit voyager avec le dessin, pas rester dans la source.
+    const credit = /<!--\s*Pinout:[^>]*?-->/.exec(source)?.[0];
+    const final = credit ? `${credit}\n${data}` : data;
     avant += source.length;
-    apres += data.length;
-    fs.writeFileSync(path.join(dir, out), data);
+    apres += final.length;
+    fs.writeFileSync(path.join(dir, out), final);
   }
   const ko = (n) => `${(n / 1024).toFixed(0)} Ko`;
   console.log(`[pinout] ${Object.keys(PINOUTS).length} posters copiés dans dist/pinout/ (${ko(avant)} → ${ko(apres)})`);

@@ -294,7 +294,6 @@ check(!globalThis.__is.executed.includes(REBUILD), 'arduino.yaml sans sketch : l
 world({ files: { 'W:/projet/.vscode/arduino.yaml': 'board: arduino:avr:uno\nsketch: Arduino/blink/blink.ino\n' } });
 await remettreAuPoint('uno');
 check(globalThis.__is.executed.includes(REBUILD), 'arduino.yaml complet : la configuration IntelliSense est demandée');
-check(!globalThis.__is.executed.includes(CLOSE_PANEL), 'commande explicite : la sortie reste ouverte (c’est là qu’on lit ce qui se passe)');
 
 // Une demande explicite REFAIT le travail, même s'il a déjà eu lieu.
 world({ files: { 'W:/projet/.vscode/arduino.yaml': 'board: arduino:avr:uno\nsketch: blink.ino\n' } });

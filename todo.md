@@ -1,8 +1,40 @@
 # À faire
-
+1. Retouche ce que tu viens de préparer : La 2026.9.1 a été publiée au lot 46 donc on passe en 2026.9.2 et retouche le changelog en conséquence.
+1. Liste moi tous les composants simulable de façon analogique. Je veux dire par là que si on place un voltmetre ou un amperemetre ou un oscillo on obtient une valeur (ou une courbe) qui ressemble à la réalité.
 ## ne pas faire pour l'instant
 ---
 
+# >>>>  v2026.9.1.50 — Publication préparée : le CHANGELOG rattrape trois lots, l'aide ne ment plus
+
+1. ✅ **La version publique ne bouge pas, et c'est voulu.** `version` vaut déjà **2026.9.1** : elle a été posée en attente au lot .46, la dernière version réellement en ligne étant la 2026.9.0 du 2 septembre. On est le 6 septembre, même mois : le calver reste `2026.9.1`. Rien à incrémenter — le champ est prêt tel quel pour la mise en ligne.
+2. ✅ **Le CHANGELOG s'arrêtait au lot .46.** Son entrée `2026.9.1` avait été écrite ce jour-là et couvrait les lots .41 à .46 ; les trois lots suivants (.47, .48, .49) n'y figuraient nulle part. Un utilisateur qui lit les nouveautés n'aurait rien su du poster de brochage ni des crédits.
+3. ✅ **Trois entrées ajoutées** : le poster de l'Uno recalé (l'agrandissement de 4,7 % qui décalait toutes les étiquettes), les crédits « Pinout: Arduino / Raspberry Pi (modified) » présents dans les fichiers livrés, et la commande de réparation de l'analyse du code détaillée au lieu d'être expédiée en une ligne.
+4. ✅ **Deux fautes corrigées** dans l'entrée existante : « les LED sont **prisent** en compte » et deux lignes qui s'arrêtaient sur un titre gras sans rien expliquer (bouton bidirectionnel, code souligné). Date de l'entrée portée au **2026-09-06**.
+5. ✅ **L'aide décrivait un réglage supprimé** ([USAGE.md](docs/fr/USAGE.md)). Le lot .47 avait documenté `kablix.showArduinoOutput` et la fermeture automatique du panneau de sortie ; le lot .48 a retiré les deux du code — mais pas de la documentation. La fiche promettait donc un réglage introuvable.
+6. ✅ **Paragraphe réécrit** : le travail automatique est silencieux, mais la fenêtre de sortie appartient à l'extension Arduino et Kablix n'y touche pas — la refermer masquerait aussi les compilations demandées par l'utilisateur.
+7. ✅ **Version EN alignée** ([USAGE.md](docs/en/USAGE.md)) : elle expédiait le sujet en trois mots (« This automatic work is silent. ») et n'avait jamais reçu l'explication. Les deux langues disent maintenant la même chose.
+8. ✅ **Contrôles de publication passés** : `verify:i18n` au vert (550 entrées, plus aucune clé manquante — la clé signalée en ⏳ au lot .47 a disparu avec le réglage), `verify:docs` au vert (parité FR/EN 79/79, 242 fichiers d'aide dans le paquet), typecheck sans erreur.
+9. ✅ **Manifeste vérifié pour la mise en ligne** : éditeur `electropol-fr`, icône, licence MIT, dépôt, catégories et description en deux langues.
+10. ✅ **Deux fichiers de test pollués par une session d'essai, remis d'aplomb.** `blink-uno.projix` pesait **90 Ko au lieu de 442 octets** : un F5 y avait enregistré une carte **mega** (dans un fichier nommé blink-**uno**), une position de caméra, et surtout les **7 composants de la bibliothèque installés sur ta machine** embarqués dans le schéma — 815 Ko de `customParts` pour un montage qui ne contient qu'une carte. `c_cpp_properties.json` avait suivi (`atmega2560`, variante `mega`). Les deux sont restaurés : ils partaient à la publication en l'état.
+11. ✅ **Un banc était cassé depuis le lot .48** : `verify:intellisense` plantait sur `ReferenceError: CLOSE_PANEL is not defined`. Le .48 avait retiré la fermeture automatique du panneau de sortie — code, réglage et contrôles — mais une ligne du banc utilisait encore la constante disparue. Le banc ne testait donc plus rien : il s'arrêtait net dès cette ligne. Ligne retirée, **50 contrôles au vert**.
+12. ℹ️ **`verify:servo` sortait en échec dans la suite complète, mais passe seul** (18 contrôles). Il pilote un Chrome sans fenêtre ; sous la charge des 104 bancs joués en parallèle, il dépasse son délai. Ce n'est pas une régression du servo.
+13. ⏳ **Le `.vsix` n'est pas construit** et la publication n'est pas lancée : `npm run package` et `vsce publish` attendent ta demande expresse.
+
+---
+# >>>>  v2026.9.1.49 — Le brochage de l'Uno retombe sur ses pattes, et les crédits sont vraiment livrés
+
+1. ✅ **Le poster de brochage était étiré, donc décalé** (item 1). Ton nouveau dessin fait **280×450** ; le code croyait encore qu'il faisait **293×480** (l'ancien). Or le poster est posé à la largeur qu'on lui déclare : une largeur trop grande de 4,7 % l'agrandissait, et **toutes** les étiquettes glissaient — de 36,5 px vers la droite et 23,9 px vers le bas, ce que tu voyais à la pastille rouge ([pinout.mts](src/webview/diagram/pinout.mts)).
+2. ✅ **Calage remesuré sur ton dessin, pas déduit de l'ancien.** Les deux planches ne se superposent pas (boîtes 216×479 contre 275×424) : j'ai mesuré au navigateur les **36 tiges** du poster, celles qui descendent des étiquettes vers les broches. Leur pas vaut **10,00 px** — exactement celui de la carte, donc **échelle 1**, pas d'agrandissement à appliquer.
+3. ✅ **Les chiffres**: la rangée du haut compte 18 tiges, avec le trou entre D8 et D7 au bon endroit ; sa dernière tige est en `x = 237,53` pour une patte 0 en `x = 280` → **tx = 42,52** (les 18 tiges donnent la même valeur à 0,14 px près). Le bas des tiges est en `y = 135,06` pour `y = 20` sur la carte → **ty = −115,07** ; la rangée du bas dit −115,08, l'écart est de deux centièmes de pixel.
+4. ✅ **Contre-épreuve dans le vrai éditeur** : poster posé sur la carte, pastille mesurée contre la patte 0 → écart **(0,05 ; −0,01) px**. C'était (36,5 ; 23,9) avant.
+5. ✅ **La pastille rouge et son « 0 » ont disparu** (item 1, deuxième partie). Ils servaient de repère de calage, leur travail est fait : le groupe `g26` est retiré du SVG (20 lignes), le reste du dessin n'a pas bougé d'un pixel.
+6. ✅ **Deux garde-fous neufs pour que ça ne se reproduise pas** : les **7 posters** doivent déclarer un `w`/`h` **égal au viewBox de leur SVG livré** — c'est précisément ce qui avait lâché — et la rangée haute du poster Uno doit tomber sur la patte 0 à moins d'un pixel. Contrôle validé à l'envers : l'ancien calage remis en place, le banc sort bien `dx=-36.50 dy=-23.94`.
+
+7. ✅ **Les crédits du lot précédent n'arrivaient nulle part.** Tu les avais fait ajouter en tête des 7 SVG (item 4 du .48) — mais **SVGO efface les commentaires** au moment de la copie vers `dist/pinout/`. Les fichiers réellement livrés à l'utilisateur n'en portaient **aucun**. Un crédit qui reste dans la source ne crédite personne.
+8. ✅ **Le crédit est maintenant replacé en tête après optimisation** ([esbuild.js](esbuild.js)) : les 7 fichiers livrés portent leur ligne (« Pinout: Arduino (modified) » ou « Pinout: Raspberry Pi (modified) »). Le chargement n'en souffre pas — `loadPinoutSvg` coupe déjà tout ce qui précède le `<svg`.
+9. ✅ **Un contrôle par poster** verrouille la présence du crédit dans le fichier livré. `verify:pinout` passe de 30 à **45 contrôles**.
+
+---
 # >>>>  v2026.9.1.48 — Items 2-4 (description, fermeture panneau, pinout, crédits)
 
 1. ✅ Description conservée (item 1 du lot précédent)
@@ -10,9 +42,6 @@
 3. ✅ Pinout Uno retouché appliqué (une seule pastille rouge, patte 0).
 4. ✅ Crédits ajoutés aux SVG pinout : « Pinout: Arduino (modified) » et « Pinout: Raspberry Pi (modified) » insérés dans tous les fichiers (`uno-pinout.svg`, `nano pinout.svg`, `mega pinout.svg`, `pico-pinout.svg`, `picow-pinout.svg`, `pico2-pinout.svg`, `pico2w-pinout.svg`).
 5. ℹ️ Prompt pour modifier arduino-vscode-ide généré — comportement souhaité : ne pas ouvrir le panneau pendant l'analyse IntelliSense, seulement pendant les vraies compilations (Vérifier, Téléverser). Sauvegardé en scratchpad à l'attention de Frank.
-6. ✅ **`buildNumber` remis à 48** : le lot précédent portait ce numéro dans son enregistrement mais le manifeste était resté à 47. Le compteur reprend la main.
-7. ✅ **Sorties de compilation Arduino ignorées** : `testkablix/.build/` (951 ko d'objets produits par *Arduino VS Code IDE* pendant tes essais) ajouté au `.gitignore`. Aucun fichier effacé, ils restent sur le disque.
-8. ℹ️ **Traces de tes essais laissées telles quelles** : `arduino.yaml` pointe la Uno et `blink-uno`, `c_cpp_properties.json` suit — c'est le résultat normal du choix de carte, je n'y touche pas.
 
 ---
 # >>>>  v2026.9.1.47 — La fenêtre de sortie ne surgit plus au choix d'une carte

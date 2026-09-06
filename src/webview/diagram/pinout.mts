@@ -64,7 +64,12 @@ const POSTERS: Record<string, PinoutPoster> = {
   pico2: { mode: 'align', w: 370, h: 220, cardW: 90, s: 1, tx: -140, ty: 0 },
   pico2w: { mode: 'align', w: 369.9999, h: 220, cardW: 90, s: 1, tx: -140, ty: 0 },
   nano: { mode: 'align', w: 225.8154, h: 384.31277, cardW: 190, s: 1, tx: 9.48, ty: -177.82 },
-  uno: { mode: 'align', w: 293.05396, h: 479.98375, cardW: 300, s: 1, tx: 5.97, ty: -139 },
+  // Poster uno redessiné par Frank (v2026.9.1.49) : viewBox 280×450 au lieu de
+  // 293×480. Calage remesuré sur les tiges du poster (pas de 10 px = celui de la
+  // carte, donc s = 1) : la rangée haute finit à x = 237.53 pour la patte 0 en
+  // x = 280 (tx = 42.52), et son bas de tige est à y = 135.06 pour y = 20 sur la
+  // carte (ty = -115.07 ; la rangée basse donne -115.08, écart sous 0,02 px).
+  uno: { mode: 'align', w: 280, h: 450, cardW: 300, s: 1, tx: 42.52, ty: -115.07 },
   mega: { mode: 'align', w: 142.70264, h: 130.34598, cardW: 430, s: 3.7795, tx: 4.32, ty: -140.34 },
 };
 
