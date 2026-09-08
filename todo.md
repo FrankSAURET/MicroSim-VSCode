@@ -6,10 +6,27 @@
     - ✅ Test d'un transistor MOS ajouté sur les deux bancs (T3 BS170 + M8) (lot .56)
     - ✅ M6 (Vce du PN2222A) : 0,2 V, positif et égal à la propriété Vce(sat) (lot .56)
     - ✅ M7 aux bornes du 3,3 V du Pico : 3,3 V (lot .56)
-    - ⬜ L'affichage de M1 n'est pas stable à 1 kHz il devrait l'être.
-2. J'ai modifié le multimètre (juste changement de la couleur pour le différencier de l'alim) applique la nouvelle couleur.
+    - ✅ L'affichage de M1 est stable à 1 kHz (lot .57)
+2. ✅ Nouvelle couleur du multimètre appliquée (lot .57)
 
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.57 — Une broche qui hache n'a pas de niveau instantané
+
+1. ✅ **M1 sautait entre 0 V et 2,396 V d'une image à l'autre** (item 1), et le rapport cyclique n'y était pour rien : mesuré sur le vrai moteur Pico, `readPwmDuty('GP15')` à 1 kHz est stable à **50,00 % ± 0,03 point** sur 60 images. Le défaut était en aval, dans le modèle du circuit.
+2. ✅ **La cause : un transistor haché était jugé sur le niveau INSTANTANÉ de sa base** ([model.mts](src/webview/diagram/model.mts)). `transistorStates` lit `readPin` et n'ouvre le pont que si la base est haute à cet instant précis. La boucle d'images échantillonne à ~16 ms ; un signal à 1 kHz dure 1 ms. **Une image sur deux tombe pendant la phase basse** : le transistor paraissait alors bloqué, le moteur sortait du circuit, et le voltmètre lisait zéro. Relevé avant correctif, 40 images : `0 2,395 0 2,395 0 0 2,396 0 …`.
+3. ✅ **Le hachage n'est pas un état, c'est une fraction du temps.** Une broche qui hache n'a **pas** de niveau instantané exploitable — le questionner revient à tirer à pile ou face. Elle est désormais vue **ACTIVE en permanence** dans `commandedBridges`, la fraction du temps restant portée par le `duty` du pont, seul endroit où elle a un sens physique (mécanisme du lot .55, qui marchait déjà — il ne recevait simplement jamais la main).
+4. ✅ **Un habillage de `readPin`, et non un cas particulier dans `transistorStates`.** Le niveau de base sert à quatre endroits (`netLevel`, `levelledRails` pour la maille de base, `mosGateVolts`, `relayStates`) : forcer `on` au seul endroit visible aurait laissé `rb === null` un peu plus loin, donc `baseAmps = 0`, donc `on: false` malgré tout. L'habillage corrige les quatre d'un coup, et le relais commandé en PWM en profite — il ne décollait plus une image sur deux.
+5. ✅ **Ce que lit M1, après**, sur le vrai banc `mesure-pico` avec le vrai moteur Pico à 1 kHz : **2,395 V** image après image, amplitude **1,3 mV** contre 2,396 V avant. Linéarité conservée : 0 % → **0,000**, 25 % → **1,197**, 50 % → **2,395**, 100 % → **4,790 V**.
+6. ✅ **M2 lisait `null` 26 images sur 40** — branche coupée, donc « rien à mesurer ». Il donne maintenant **47,9 mA** sans trou. O1 garde toute la hauteur du créneau (0 → 3,3 V) : c'est son métier, et c'est la démonstration que porte le banc.
+7. ✅ **Quatre contrôles neufs** dans `verify:motor`, section « Variateur PWM par transistor » : la mesure est prise **broche lue BASSE** — l'instant creux, exactement celui qui cassait — à 25 / 50 / 75 / 100 %, et doit rendre le même chiffre qu'au sommet. Les sept contrôles du lot .55 sont intacts.
+8. ✅ **Le hachage d'un PNP par le HAUT n'est pas couvert**, et c'est écrit dans le code : sa commande active est le niveau BAS, que ce raccourci ne sait pas distinguer d'une broche au repos. Aucun banc ni schéma du dépôt n'utilise ce montage.
+9. ✅ **Nouvelle couleur du multimètre appliquée** (item 2) : Frank a changé le dégradé du groupe `multimetre` de `Composants2D.svg` (jaune `#f9cb60`/`#e5a50a` → bleu `#6cc9ed`/`#1aa0d5`, pour le distinguer de l'alimentation). Réextraction par `_extract-composants.mjs` et illustration `docs/img/composants/multimetre.webp` **recapturée** par `_capture-part.mjs` — jamais à la main.
+10. ℹ️ **Un défaut voisin laissé de côté, et il PRÉEXISTE** (vérifié en remisant le correctif : même comportement avant) : à **0 %** de rapport cyclique, M2 rend `null` au lieu de 0 A. Plus aucun pont n'existe, donc plus aucun hachage à moyenner, et `theveninNode` ne distingue pas « prise en l'air » de « circuit raccordé mais ouvert ». Distinguer les deux est une autre analyse — hors de l'item.
+11. ✅ **Aucune régression** : suite complète **104/104 bancs joués**, typecheck sans erreur, construction faite. `verify:transistor` (174 contrôles) et `verify:fan` passent inchangés.
+12. ℹ️ **`verify:rfid` et `verify:i18n` restent en échec, tous deux préexistants** et sans rapport avec ce lot — les mêmes qu'au .56 : le premier depuis avant le .55, le second attend les six libellés `Vce(sat)` / `Vgs(th)` en français, **avant publication**, comme le veut la règle des traductions.
+
 ---
 
 # >>>>  v2026.9.2.56 — Un rail donne sa tension, la masse vaut zéro

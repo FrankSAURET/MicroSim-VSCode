@@ -2566,6 +2566,15 @@ function flybackFault(
  * contact des relais (travail si la bobine colle, repos sinon). L'état dépend
  * des niveaux, qui dépendent des ponts : l'appelant boucle jusqu'au point fixe
  * (setActiveBridges puis nouvel appel — deux tours suffisent en pratique).
+ *
+ * Une broche qui HACHE n'a pas de niveau instantané exploitable : à 1 kHz, une
+ * image sur deux tombe pendant la phase basse. Le transistor paraissait alors
+ * bloqué, la charge sortait du circuit et la lecture du voltmètre sautait d'une
+ * image à l'autre (M1 du banc mesure-pico). Une telle broche est donc vue
+ * ACTIVE en permanence, la fraction du temps étant portée par le `duty` du pont
+ * — le seul endroit où elle a un sens physique. Le hachage d'un PNP par le haut
+ * n'est pas couvert : sa commande active est le niveau BAS, que ce raccourci ne
+ * sait pas distinguer.
  */
 export function commandedBridges(
   diagram: Diagram,
@@ -2576,7 +2585,10 @@ export function commandedBridges(
   pwmDuty?: (pin: string) => number | null
 ): ActiveBridge[] {
   const out: ActiveBridge[] = [];
-  for (const st of transistorStates(diagram, readPin, vcc, psuVolts, liveOhms)) {
+  const lit = pwmDuty
+    ? (name: string): boolean => ((pwmDuty(name) ?? 0) > 0 ? true : readPin(name))
+    : readPin;
+  for (const st of transistorStates(diagram, lit, vcc, psuVolts, liveOhms)) {
     if (!st.on) continue;
     const part = diagram.parts.find((p) => p.id === st.partId)!;
     const pins = transistorPins(part);
@@ -2595,7 +2607,7 @@ export function commandedBridges(
       ...(duty !== null ? { duty } : {}),
     });
   }
-  for (const st of relayStates(diagram, readPin, vcc, psuVolts, liveOhms)) {
+  for (const st of relayStates(diagram, lit, vcc, psuVolts, liveOhms)) {
     const part = diagram.parts.find((p) => p.id === st.partId)!;
     const pins = relayPins(part);
     out.push({ partId: st.partId, a: pins.com, b: st.closed ? pins.no : pins.nf });

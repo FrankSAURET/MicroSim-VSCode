@@ -561,6 +561,32 @@ console.log('Variateur PWM par transistor :');
   })();
   check('sans PWM du tout : la mesure est celle d’avant (aucune moyenne)',
     near(sansPwm, plein.volts, 1e-9), `${sansPwm?.toFixed(3)} V`);
+
+  // Le hachage vu au CREUX du cycle (Frank : « M1 n'est pas stable à 1 kHz »).
+  // La boucle d'images échantillonne à ~16 ms : sur un signal à 1 kHz, une image
+  // sur deux tombe pendant la phase basse. Le niveau instantané décidait alors
+  // si le transistor conduisait — la charge sortait du circuit et la lecture
+  // sautait entre 0 V et sa valeur. Une broche qui hache n'a pas de niveau
+  // instantané exploitable : elle est vue ACTIVE, la fraction du temps étant
+  // portée par le `duty` du pont.
+  const mesureAuCreux = (duty) => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(
+        model.commandedBridges(banc, () => false, 5, undefined, undefined,
+          (pin) => (pin === '9' ? duty : null))
+      );
+    }
+    const v = model.meterReadings(banc, 5, () => 'hiz')
+      .find((x) => x.partId === 'mv')?.value;
+    model.setActiveBridges([]);
+    return v;
+  };
+  for (const duty of [0.25, 0.5, 0.75, 1]) {
+    const creux = mesureAuCreux(duty);
+    const attendu = plein.volts * duty;
+    check(`broche lue BASSE à ${duty * 100} % : même mesure qu’au sommet (pas de saut)`,
+      near(creux, attendu, 1e-3), `${creux?.toFixed(3)} V au lieu de ${attendu.toFixed(3)} V`);
+  }
 }
 
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);

@@ -22,9 +22,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="1.4142136"
-     inkscape:cx="588.6664"
-     inkscape:cy="543.76511"
+     inkscape:zoom="1"
+     inkscape:cx="243.49999"
+     inkscape:cy="328.99999"
      inkscape:document-units="px"
      showgrid="true"
      inkscape:window-width="1920"
@@ -61,6 +61,14 @@
        margin="0"
        bleed="0" /></sodipodi:namedview><defs
      id="defs2"><linearGradient
+   id="linearGradient49"
+   inkscape:collect="always"><stop
+     style="stop-color:#6cc9ed;stop-opacity:1;"
+     offset="0"
+     id="stop47" /><stop
+     style="stop-color:#1aa0d5;stop-opacity:1;"
+     offset="1"
+     id="stop48" /></linearGradient><linearGradient
    id="linearGradient620"
    inkscape:collect="always"><stop
      style="stop-color:#62a0ea;stop-opacity:0.97942397;"
@@ -18089,7 +18097,7 @@
    simplify_individual_paths="false"
    simplify_just_coalesce="false" /><linearGradient
    inkscape:collect="always"
-   xlink:href="#linearGradient125-2"
+   xlink:href="#linearGradient49"
    id="linearGradient126"
    x1="219.60416"
    y1="56.278793"
