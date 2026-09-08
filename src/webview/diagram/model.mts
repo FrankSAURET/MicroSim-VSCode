@@ -1684,6 +1684,15 @@ export function meterReadings(
   );
 }
 
+/** Vrai si un fil part de cette broche : l'appareil est bien INSÉRÉ dans le
+ *  montage, par opposition à une prise laissée en l'air. */
+function pinWired(diagram: Diagram, partId: string, pin: string): boolean {
+  return diagram.wires.some(
+    (w) =>
+      (w.a.partId === partId && w.a.pin === pin) || (w.b.partId === partId && w.b.pin === pin)
+  );
+}
+
 /** Une passe de mesure sur le circuit TEL QU'IL EST : les ponts commandés en
  *  place, sans moyenne de hachage (cf. meterReadings, qui l'appelle deux fois). */
 function readMetersOnce(
@@ -1708,8 +1717,19 @@ function readMetersOnce(
     const plus = theveninNode(nets.netOf({ partId: meter.id, pin: '+' }), sources, sourceNets, adj);
     const minus = theveninNode(nets.netOf({ partId: meter.id, pin: 'GND' }), sources, sourceNets, adj);
     if (!plus || !minus) {
-      // Une prise en l'air (ou les deux) : l'appareil ne mesure rien.
-      out.push({ partId: meter.id, mode, value: null, fault: '' });
+      // Un AMPÈREMÈTRE inséré dans une branche COUPÉE lit zéro, pas « rien ».
+      // Ses deux prises sont câblées, mais l'une des deux n'atteint plus aucune
+      // source : transistor bloqué en amont, interrupteur ouvert, PWM à 0 %.
+      // Le potentiel de ce côté est indéterminé — il n'y a plus de circuit —
+      // mais le courant, lui, est parfaitement défini : il ne passe rien.
+      // (Frank, banc mesure-pico : M2 affichait « — » à 0 % de rapport cyclique.)
+      // Une prise réellement EN L'AIR reste sans mesure : l'appareil n'est pas
+      // inséré dans le montage, et un voltmètre dont une prise flotte n'a de
+      // toute façon pas de tension à donner.
+      const branche = mode === 'current'
+        && pinWired(diagram, meter.id, '+')
+        && pinWired(diagram, meter.id, 'GND');
+      out.push({ partId: meter.id, mode, value: branche ? 0 : null, fault: '' });
       continue;
     }
     if (mode === 'voltage') {
@@ -1959,16 +1979,29 @@ export function fanSpeed(
 
 // --- Moteur à courant continu -----------------------------------------------
 
-/** Fraction de la tension nominale sous laquelle un moteur ne démarre pas. */
-const MOTOR_START_RATIO = 0.3;
+/**
+ * Fraction de la tension nominale sous laquelle un moteur ne démarre pas.
+ *
+ * 15 % : sous cette tension le couple ne vainc même plus les frottements secs,
+ * le rotor reste calé et l'enroulement chauffe. C'est une VRAIE erreur de
+ * montage — alimentation mal choisie, chute de tension en série — et elle est
+ * dite à l'élève (`fault: 'weak'`), au contraire de la simple absence de
+ * consigne. Une commande HACHÉE en est justement dispensée : à 5 % de rapport
+ * cyclique le moteur ne tourne pas non plus, mais le câblage est bon et il
+ * suffit d'ouvrir la consigne pour qu'il démarre.
+ */
+const MOTOR_START_RATIO = 0.15;
 /** Au-delà de ce multiple de sa tension nominale, le moteur GRILLE. */
 export const MOTOR_BURN_RATIO = 1.5;
 /** Vitesse maximale affichée, en multiple du régime nominal : un moteur
  *  survolté tourne plus vite, mais pas indéfiniment (il grille avant). */
 const MOTOR_MAX_SPEED = MOTOR_BURN_RATIO;
 
-/** Ce qui empêche un moteur à courant continu de tourner correctement. */
-export type MotorFault = 'none' | 'no-diode' | 'reversed-diode' | 'starved' | 'overvolt';
+/** Ce qui empêche un moteur à courant continu de tourner correctement.
+ *  `weak` : tension trop basse pour le décoller (sous MOTOR_START_RATIO), hors
+ *  commande hachée — là c'est la consigne qui est basse, pas le montage. */
+export type MotorFault =
+  | 'none' | 'no-diode' | 'reversed-diode' | 'starved' | 'overvolt' | 'weak';
 
 export interface MotorState {
   partId: string;
@@ -1994,9 +2027,10 @@ export interface MotorState {
  * Un moteur n'est pas polarisé : ses deux fils sont interchangeables, on essaie
  * donc les deux sens et on garde celui qui met un + d'un côté et une masse de
  * l'autre. Sa vitesse suit la TENSION appliquée (`speed` = U/Unom) ; il ne
- * démarre pas sous 30 % de sa tension nominale, ni si la source ne peut pas
- * fournir le courant qu'il demande, et il GRILLE au-delà de 1,5 fois sa tension
- * nominale.
+ * démarre pas sous 15 % de sa tension nominale — et le dit alors, sauf en
+ * commande hachée où c'est la consigne qui est basse et non le montage —, ni si
+ * la source ne peut pas fournir le courant qu'il demande, et il GRILLE au-delà
+ * de 1,5 fois sa tension nominale.
  *
  * Comme une bobine de relais, un moteur est une INDUCTANCE : à la coupure il
  * renvoie une surtension qui détruit le transistor de commande. Une diode de
@@ -2071,10 +2105,16 @@ export function motorStates(
       continue;
     }
     const ratio = volts / rated;
+    // Trop peu de tension pour décoller. C'est un défaut de MONTAGE — et donc
+    // un message — sauf quand la commande est HACHÉE : le câblage est alors
+    // bon, seule la consigne est basse, et il suffit d'ouvrir le rapport
+    // cyclique pour que le moteur démarre. Lui coller une erreur reviendrait à
+    // signaler un défaut à chaque passage par le bas d'une rampe de vitesse.
+    const cale = ratio < MOTOR_START_RATIO;
     out.push({
       partId: part.id, powered: true, volts, amps,
-      speed: ratio < MOTOR_START_RATIO ? 0 : Math.min(MOTOR_MAX_SPEED, ratio),
-      fault: 'none',
+      speed: cale ? 0 : Math.min(MOTOR_MAX_SPEED, ratio),
+      fault: cale && !circuit.chopped ? 'weak' : 'none',
     });
   }
   return out;
@@ -2570,11 +2610,20 @@ function flybackFault(
  * Une broche qui HACHE n'a pas de niveau instantané exploitable : à 1 kHz, une
  * image sur deux tombe pendant la phase basse. Le transistor paraissait alors
  * bloqué, la charge sortait du circuit et la lecture du voltmètre sautait d'une
- * image à l'autre (M1 du banc mesure-pico). Une telle broche est donc vue
- * ACTIVE en permanence, la fraction du temps étant portée par le `duty` du pont
- * — le seul endroit où elle a un sens physique. Le hachage d'un PNP par le haut
- * n'est pas couvert : sa commande active est le niveau BAS, que ce raccourci ne
- * sait pas distinguer.
+ * image à l'autre (M1 du banc mesure-pico). Une telle broche est donc vue à son
+ * niveau ACTIF en permanence, la fraction du temps étant portée par le `duty` du
+ * pont — le seul endroit où elle a un sens physique.
+ *
+ * Ce niveau actif dépend de la FAMILLE : un NPN (et un MOSFET canal N) conduit
+ * base HAUTE, un PNP (et un canal P, monté par le haut) conduit base BASSE. Un
+ * `readPin` unique ne peut donc pas servir les deux — on résout le montage DEUX
+ * fois, broche hachée vue haute puis vue basse, et chaque transistor est retenu
+ * depuis la passe qui correspond à sa famille. Sans hachage en cours, la
+ * seconde passe n'est jamais jouée : le cas courant ne paie rien.
+ *
+ * Le rapport cyclique s'inverse avec la famille lui aussi : `readPwmDuty` rend
+ * la fraction HAUTE du signal, qui est le temps de conduction d'un NPN mais le
+ * temps de BLOCAGE d'un PNP — dont le pont porte donc 1 − duty.
  */
 export function commandedBridges(
   diagram: Diagram,
@@ -2585,16 +2634,34 @@ export function commandedBridges(
   pwmDuty?: (pin: string) => number | null
 ): ActiveBridge[] {
   const out: ActiveBridge[] = [];
+  // La broche HACHE dès que le moteur de simulation lui connaît un rapport
+  // cyclique — 0 % compris. C'est bien une commande PWM à consigne nulle, pas
+  // une broche au repos : le pont existe, avec un duty de 0. Tester `> 0`
+  // laissait le PNP à 0 % (donc conduisant EN PERMANENCE, base toujours basse)
+  // retomber sur le niveau instantané, seul cas resté découvert.
+  const hache = (name: string): boolean => pwmDuty?.(name) !== null && pwmDuty?.(name) !== undefined;
   const lit = pwmDuty
-    ? (name: string): boolean => ((pwmDuty(name) ?? 0) > 0 ? true : readPin(name))
+    ? (name: string): boolean => (hache(name) ? true : readPin(name))
     : readPin;
-  for (const st of transistorStates(diagram, lit, vcc, psuVolts, liveOhms)) {
+  // Seconde vue du montage : la broche hachée y est BASSE, niveau actif des PNP
+  // et des canaux P. Inutile de la calculer si rien ne hache.
+  const litBas = (name: string): boolean => (hache(name) ? false : readPin(name));
+  const parPnp = pwmDuty
+    ? new Map(
+        transistorStates(diagram, litBas, vcc, psuVolts, liveOhms).map((st) => [st.partId, st])
+      )
+    : null;
+  for (const haut of transistorStates(diagram, lit, vcc, psuVolts, liveOhms)) {
+    // Un PNP est jugé sur la passe où la broche de commande est basse.
+    const st = !haut.npn && parPnp ? parPnp.get(haut.partId) ?? haut : haut;
     if (!st.on) continue;
     const part = diagram.parts.find((p) => p.id === st.partId)!;
     const pins = transistorPins(part);
     // Commande hachée : le transistor ne conduit qu'une fraction du temps, et
-    // ce qu'il alimente n'en reçoit que la moyenne.
-    const duty = st.gatePin ? pwmDuty?.(st.gatePin) ?? null : null;
+    // ce qu'il alimente n'en reçoit que la moyenne. Un PNP conduit pendant la
+    // fraction BASSE, d'où le complément.
+    const brut = st.gatePin ? pwmDuty?.(st.gatePin) ?? null : null;
+    const duty = brut === null ? null : st.npn ? brut : 1 - brut;
     // Le courant entre par le collecteur (NPN) ou par l'émetteur (PNP).
     out.push({
       partId: st.partId,

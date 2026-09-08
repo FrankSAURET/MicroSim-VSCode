@@ -3043,6 +3043,153 @@ while True:
 `,
   }),
 
+  // Variateur par le HAUT : le transistor est un PNP entre le + et la charge.
+  // C'est le montage « côté haut », le seul possible quand la charge doit garder
+  // sa masse en commun avec le reste — et celui que le lot .57 laissait
+  // découvert : un PNP conduit base BASSE, donc le raccourci « broche hachée =
+  // niveau actif » qui sert les NPN le bloquait au lieu de le faire conduire.
+  //
+  // Le programme fait varier le rapport cyclique de D9 ; comme la commande est
+  // inversée, le moteur tourne le plus vite à 0 % et s'arrête à 100 %.
+  test({
+    name: 'variateur-pnp-uno', board: 'uno', ext: 'ino',
+    parts: [
+      MCU('uno'),
+      { id: 'Alim1', type: 'alim', x: 620, y: 460, attrs: { voltage: '5', maxcurrent: '2' } },
+      { id: 'R1', type: 'resistor', x: 300, y: 180, attrs: { value: '1000' } },
+      // Émetteur au +, collecteur vers la charge : commande côté HAUT.
+      { id: 'T1', type: 'pnp', x: 440, y: 200, attrs: { text: '2N\n2907', e: '1', b: '2', c: '3', gain: '100' } },
+      { id: 'Act1', type: 'moteur-dc', x: 700, y: 40, attrs: { voltage: '5', current: '0.1' } },
+      { id: 'D1', type: 'diode', x: 880, y: 140, attrs: { vf: '0.6' } },
+      { id: 'M1', type: 'multimetre', x: 1020, y: 40, attrs: { mode: 'voltage' } },
+      { id: 'M2', type: 'multimetre', x: 1020, y: 300, attrs: { mode: 'current' } },
+      { id: 'O1', type: 'oscillo', x: 260, y: 460, attrs: { voltsdiv: '1', sdiv: '0.001' } },
+    ],
+    wires: () => [
+      // D9 -> 1 kΩ -> base : la broche TIRE la base vers le bas pour conduire.
+      w('R1', '1', 'U1', '9', 'green'),
+      w('R1', '2', 'T1', '2', 'green'),
+      // L'émetteur est au + de l'alimentation, pas à la masse.
+      w('M2', '+', 'Alim1', 'V+', 'red'),
+      w('M2', 'GND', 'T1', '1', 'red'),
+      w('T1', '3', 'Act1', '1', 'blue'),
+      w('Act1', '2', 'Alim1', 'GND', 'black'),
+      w('Alim1', 'GND', 'U1', 'GND.2', 'black'),
+      // Roue libre : un moteur est une bobine, quel que soit le côté commandé.
+      w('D1', 'K', 'Act1', '1', 'purple'),
+      w('D1', 'A', 'Act1', '2', 'purple'),
+      w('M1', '+', 'Act1', '1', 'red'),
+      w('M1', 'GND', 'Act1', '2', 'blue'),
+      w('O1', '+', 'T1', '2', 'yellow'),
+      w('O1', 'GND', 'U1', 'GND.4', 'black'),
+    ],
+    expect: {
+      kind: 'meter', volts: 5, bridges: true,
+      // La broche est lue HAUTE — le niveau qui BLOQUE un PNP. Le résultat ne
+      // doit pas en dépendre : c'est le rapport cyclique qui décide, pas
+      // l'instant où la boucle d'images est tombée.
+      drive: { 9: 'high' },
+      pwm: { 9: 0.25 },
+      readings: [
+        // 25 % de temps haut = 75 % de temps de conduction pour un PNP.
+        { partId: 'M1', mode: 'voltage', value: 3.6, tol: 0.05 },
+        { partId: 'M2', mode: 'current', value: 0.0719, tol: 0.003 },
+        // L'oscilloscope garde toute la hauteur du créneau de commande.
+        { partId: 'O1', mode: 'voltage', value: 5, tol: 0.05 },
+      ],
+    },
+    code: `// Variateur par le HAUT : le transistor PNP est entre le + et le moteur.
+//
+// Un PNP conduit quand sa base est TIREE VERS LE BAS : la commande est donc
+// INVERSEE. A 0 % de rapport cyclique la base reste basse en permanence et le
+// moteur tourne a plein regime ; a 100 % elle reste haute et il s'arrete.
+//
+// M1 lit la tension moyenne aux bornes du moteur, M2 le courant, O1 montre le
+// creneau de commande — dont la hauteur ne change jamais.
+const int VARIATEUR = 9;   // base du PNP, a travers 1 kohm
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(VARIATEUR, OUTPUT);
+  Serial.println("Variateur PNP : 0 % = plein regime, 100 % = arret.");
+}
+
+void loop() {
+  for (int pourcent = 0; pourcent <= 100; pourcent += 25) {
+    analogWrite(VARIATEUR, (pourcent * 255) / 100);
+    delay(1200);
+    Serial.print("rapport cyclique ");
+    Serial.print(pourcent);
+    Serial.println(" %  ->  le moteur ralentit");
+  }
+}
+`,
+  }),
+
+  // Le même variateur par le haut sur Pico. La carte ne fait que commander le
+  // transistor : tout ce qui pend à l'alimentation lit la MÊME chose.
+  test({
+    name: 'variateur-pnp-pico', board: 'pico', ext: 'py',
+    parts: [
+      MCU('pico'),
+      { id: 'Alim1', type: 'alim', x: 620, y: 460, attrs: { voltage: '5', maxcurrent: '2' } },
+      { id: 'R1', type: 'resistor', x: 300, y: 180, attrs: { value: '1000' } },
+      { id: 'T1', type: 'pnp', x: 440, y: 200, attrs: { text: '2N\n2907', e: '1', b: '2', c: '3', gain: '100' } },
+      { id: 'Act1', type: 'moteur-dc', x: 700, y: 40, attrs: { voltage: '5', current: '0.1' } },
+      { id: 'D1', type: 'diode', x: 880, y: 140, attrs: { vf: '0.6' } },
+      { id: 'M1', type: 'multimetre', x: 1020, y: 40, attrs: { mode: 'voltage' } },
+      { id: 'M2', type: 'multimetre', x: 1020, y: 300, attrs: { mode: 'current' } },
+      { id: 'O1', type: 'oscillo', x: 260, y: 460, attrs: { voltsdiv: '1', sdiv: '0.001' } },
+    ],
+    wires: () => [
+      w('R1', '1', 'U1', 'GP15', 'green'),
+      w('R1', '2', 'T1', '2', 'green'),
+      w('M2', '+', 'Alim1', 'V+', 'red'),
+      w('M2', 'GND', 'T1', '1', 'red'),
+      w('T1', '3', 'Act1', '1', 'blue'),
+      w('Act1', '2', 'Alim1', 'GND', 'black'),
+      w('Alim1', 'GND', 'U1', 'GND.2', 'black'),
+      w('D1', 'K', 'Act1', '1', 'purple'),
+      w('D1', 'A', 'Act1', '2', 'purple'),
+      w('M1', '+', 'Act1', '1', 'red'),
+      w('M1', 'GND', 'Act1', '2', 'blue'),
+      w('O1', '+', 'T1', '2', 'yellow'),
+      w('O1', 'GND', 'U1', 'GND.8', 'black'),
+    ],
+    expect: {
+      kind: 'meter', volts: 3.3, bridges: true,
+      drive: { GP15: 'high' },
+      pwm: { GP15: 0.25 },
+      readings: [
+        // Mêmes valeurs que sur Uno : c'est l'alimentation de laboratoire qui
+        // fournit le moteur, la carte ne fait que commander le transistor.
+        { partId: 'M1', mode: 'voltage', value: 3.6, tol: 0.05 },
+        { partId: 'M2', mode: 'current', value: 0.0719, tol: 0.003 },
+        // Le créneau de commande, lui, est à la tension de la carte.
+        { partId: 'O1', mode: 'voltage', value: 3.3, tol: 0.05 },
+      ],
+    },
+    code: `# Variateur par le HAUT : le transistor PNP est entre le + et le moteur.
+#
+# Un PNP conduit quand sa base est TIREE VERS LE BAS : la commande est donc
+# INVERSEE. A 0 % de rapport cyclique le moteur tourne a plein regime, a 100 %
+# il s'arrete.
+from machine import Pin, PWM
+import time
+
+variateur = PWM(Pin(15))
+variateur.freq(1000)
+
+print("Variateur PNP : 0 % = plein regime, 100 % = arret.")
+
+while True:
+    for pourcent in range(0, 101, 25):
+        variateur.duty_u16(pourcent * 65535 // 100)
+        time.sleep_ms(1200)
+        print("rapport cyclique", pourcent, "%  ->  le moteur ralentit")
+`,
+  }),
+
   // Barrière optique infrarouge : sortie à COLLECTEUR OUVERT, donc rappel
   // obligatoire — ici en externe (10 kΩ vers 5 V), le montage des fiches DFRobot.
   // Les DEUX boîtiers sont alimentés : l'émetteur sans courant n'éclaire rien et

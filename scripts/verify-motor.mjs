@@ -64,13 +64,18 @@ const state = (diagram, duty) => model.motorStates(diagram, 5, duty)[0];
 // --- 1. Modèle : la vitesse suit la tension ----------------------------------
 console.log('Modèle (motorStates) :');
 {
-  const volts = [5, 4, 3, 2, 1.4];
+  const volts = [5, 4, 3, 2, 1.4, 0.7];
   const speeds = volts.map((v) => state(direct(v)).speed);
   check('5 V sur un moteur 5 V : plein régime', near(speeds[0], 1),
     volts.map((v, i) => `${v}V→${(speeds[i] * 100).toFixed(0)}%`).join(' '));
   check('baisser la tension baisse la vitesse',
     speeds.every((s, i) => i === 0 || s <= speeds[i - 1]));
-  check('1,4 V (28 % de 5 V) : le moteur ne démarre pas', speeds[4] === 0);
+  // Seuil de décollage à 15 % de la tension nominale : 1,4 V (28 %) fait encore
+  // tourner un moteur de 5 V, 0,7 V (14 %) ne le décolle plus.
+  check('1,4 V (28 % de 5 V) : le moteur tourne encore', speeds[4] > 0,
+    `${(speeds[4] * 100).toFixed(0)} %`);
+  check('0,7 V (14 % de 5 V) : sous le seuil, le moteur reste calé',
+    speeds[5] === 0);
   const st5 = state(direct(5));
   check('courant appelé = U/R (5 V / 25 Ω = 0,2 A)', near(st5.amps, 0.2), `${st5.amps.toFixed(3)} A`);
   check('branché en direct : aucun défaut, aucune diode réclamée', st5.fault === 'none');
@@ -587,6 +592,130 @@ console.log('Variateur PWM par transistor :');
     check(`broche lue BASSE à ${duty * 100} % : même mesure qu’au sommet (pas de saut)`,
       near(creux, attendu, 1e-3), `${creux?.toFixed(3)} V au lieu de ${attendu.toFixed(3)} V`);
   }
+
+  // Le seuil de décollage NE DOIT PAS crier sous une commande hachée : le
+  // câblage est bon, seule la consigne est basse. À 10 % de rapport cyclique le
+  // moteur ne tourne pas — et c'est normal, il suffit d'ouvrir la consigne.
+  const etat = (duty) => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(
+        model.commandedBridges(banc, (n) => n === '9', 5, undefined, undefined,
+          (pin) => (pin === '9' ? duty : null))
+      );
+    }
+    const st = model.motorStates(banc, 5, () => duty)[0];
+    model.setActiveBridges([]);
+    return st;
+  };
+  const bas = etat(0.1);
+  const haut = etat(1);
+  check('PWM à 10 % : le moteur ne tourne pas, mais AUCUNE erreur n’est dite',
+    bas.speed === 0 && bas.fault === 'none', `vitesse ${bas.speed}, fault=${bas.fault}`);
+  check('PWM à 100 % : le moteur tourne, toujours sans erreur',
+    haut.speed > 0 && haut.fault === 'none', `vitesse ${(haut.speed * 100).toFixed(0)} %`);
+}
+
+// --- 5. Le même variateur, mais monté par le HAUT (PNP) ----------------------
+// Un PNP conduit base BASSE : la broche hachée doit donc être vue au niveau
+// BAS pour lui, et son temps de conduction est le COMPLÉMENT du rapport
+// cyclique — `readPwmDuty` rend la fraction haute, qui le bloque. Le lot .57
+// laissait ce montage découvert : le raccourci « broche hachée = active »
+// forçait le niveau haut, le seul qui bloque un PNP.
+console.log('Variateur PWM par transistor PNP (commande par le haut) :');
+{
+  const p = (id, type, attrs) => ({ id, type, x: 0, y: 0, attrs: attrs ?? {} });
+  const w = (id, a, b) => ({ id, a, b });
+  const pn = (partId, pin) => ({ partId, pin });
+  // 5 V → émetteur, collecteur → moteur → masse. Base attaquée par la broche 9
+  // à travers 1 kΩ : elle TIRE la base vers le bas pour faire conduire.
+  const banc = {
+    parts: [
+      p('uno', 'uno'),
+      p('q', 'pnp', { symbol: 'pnp' }),
+      p('rb', 'resistor', { value: '1000' }),
+      p('m1', 'moteur-dc', { voltage: '5', current: '0.2' }),
+      p('d1', 'diode'),
+      p('mv', 'multimetre', { mode: 'voltage' }),
+    ],
+    wires: [
+      w('w1', pn('uno', '9'), pn('rb', '1')),
+      w('w2', pn('rb', '2'), pn('q', '2')),
+      w('w3', pn('uno', '5V'), pn('q', '1')),
+      w('w4', pn('q', '3'), pn('m1', '1')),
+      w('w5', pn('m1', '2'), pn('uno', 'GND.1')),
+      w('w6', pn('m1', '1'), pn('d1', 'K')),
+      w('w7', pn('m1', '2'), pn('d1', 'A')),
+      w('w8', pn('m1', '1'), pn('mv', '+')),
+      w('w9', pn('m1', '2'), pn('mv', 'GND')),
+    ],
+  };
+  // `brocheHaute` : ce que le niveau instantané raconterait à cet instant. Le
+  // résultat ne doit PAS en dépendre — c'est tout l'objet du correctif.
+  const mesure = (duty, brocheHaute) => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(
+        model.commandedBridges(banc, () => brocheHaute, 5, undefined, undefined,
+          (pin) => (pin === '9' ? duty : null))
+      );
+    }
+    const v = model
+      .meterReadings(banc, 5, (pin) => (pin === '9' ? (brocheHaute ? 'high' : 'low') : 'hiz'))
+      .find((x) => x.partId === 'mv')?.value;
+    model.setActiveBridges([]);
+    return v;
+  };
+  // Sans PWM : base basse = moteur alimenté, base haute = moteur arrêté.
+  const statique = (haute) => {
+    for (let i = 0; i < 3; i++) model.setActiveBridges(model.commandedBridges(banc, () => haute, 5));
+    const v = model.meterReadings(banc, 5, (pin) => (pin === '9' ? (haute ? 'high' : 'low') : 'hiz'))
+      .find((x) => x.partId === 'mv')?.value;
+    model.setActiveBridges([]);
+    return v;
+  };
+  const baseBasse = statique(false);
+  const baseHaute = statique(true);
+  check('sans PWM : base BASSE, le PNP conduit', baseBasse > 4 && baseBasse < 5,
+    `${baseBasse?.toFixed(3)} V`);
+  check('sans PWM : base HAUTE, le PNP est bloqué', near(baseHaute, 0, 1e-3),
+    `${baseHaute?.toFixed(3)} V`);
+  // Le rapport cyclique est celui de la fraction HAUTE : 25 % haut = 75 % de
+  // conduction pour un PNP. La tension moyenne suit donc 1 − duty.
+  for (const duty of [0, 0.25, 0.5, 0.75, 1]) {
+    const attendu = baseBasse * (1 - duty);
+    const haut = mesure(duty, true);
+    const bas = mesure(duty, false);
+    check(`${duty * 100} % haut : le PNP conduit le COMPLÉMENT du temps`,
+      near(haut, attendu, 1e-3), `${haut?.toFixed(3)} V au lieu de ${attendu.toFixed(3)} V`);
+    check(`${duty * 100} % haut : même mesure quel que soit le niveau lu (pas de saut)`,
+      near(haut, bas, 1e-9), `haut ${haut?.toFixed(3)} V, bas ${bas?.toFixed(3)} V`);
+  }
+}
+
+// --- 6. Seuil de décollage : 15 % arrête ET le dit, 150 % grille -------------
+console.log('Tension trop faible / trop forte :');
+{
+  // Sans commande hachée, une tension trop basse est une ERREUR de montage :
+  // le rotor reste calé et l'enroulement chauffe. Elle est dite à l'élève.
+  const sous = state(direct(0.7)); // 14 % de 5 V
+  const juste = state(direct(0.8)); // 16 %
+  check('14 % de la tension nominale : arrêté ET signalé',
+    sous.speed === 0 && sous.fault === 'weak', `fault=${sous.fault}`);
+  check('16 % : juste au-dessus du seuil, il décolle sans rien signaler',
+    juste.speed > 0 && juste.fault === 'none',
+    `${(juste.speed * 100).toFixed(0)} %, fault=${juste.fault}`);
+  // Le seuil est bien à 15 % et pas à 30 % : 2 V sur un moteur de 5 V (40 %)
+  // tournait déjà, 1 V (20 %) ne tournait pas — il tourne maintenant.
+  const vingt = state(direct(1));
+  check('20 % de la tension nominale : le moteur tourne (seuil abaissé à 15 %)',
+    vingt.speed > 0 && vingt.fault === 'none', `${(vingt.speed * 100).toFixed(0)} %`);
+  // L'autre bout de la règle, inchangé : au-delà de 150 % le moteur GRILLE.
+  const brule = state(direct(8)); // 160 %
+  const limite = state(direct(7)); // 140 %
+  check('160 % de la tension nominale : le moteur grille',
+    brule.fault === 'overvolt' && brule.speed === 0, `fault=${brule.fault}`);
+  check('140 % : survolté mais vivant, il tourne plus vite que le nominal',
+    limite.fault === 'none' && limite.speed > 1,
+    `${(limite.speed * 100).toFixed(0)} %, fault=${limite.fault}`);
 }
 
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);

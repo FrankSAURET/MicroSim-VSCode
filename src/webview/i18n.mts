@@ -42,6 +42,8 @@ const FR: Record<string, string> = {
   'The supply cannot deliver the motor current':
     'L\'alimentation ne peut pas fournir le courant du moteur',
   'Motor overvoltage: it burned out': 'Surtension : le moteur a grillé',
+  'Motor voltage too low: it does not turn':
+    'Tension trop faible : le moteur ne tourne pas',
   // Étiquette posée à côté du composant encadré : elle EXPLIQUE le défaut, là
   // où la barre d'état se contente de le nommer.
   'Diode reversed': 'Diode à l\'envers',
@@ -49,6 +51,8 @@ const FR: Record<string, string> = {
     'La commande d\'un relais est une bobine : à la coupure elle renvoie une surtension qui détruit le transistor de commande. La diode de roue libre l\'absorbe — elle n\'est pas facultative.',
   'Coil voltage too low: this relay does not pull in. Supply the coil at its rated voltage.':
     'Tension de bobine trop faible : ce relais ne colle pas. Alimentez la bobine sous sa tension nominale.',
+  'Too little voltage to overcome the motor friction: the rotor stays stalled and the winding heats up. Supply it at its rated voltage, or cut the losses in series with it.':
+    "Trop peu de tension pour vaincre les frottements du moteur : le rotor reste calé et l'enroulement chauffe. Alimentez-le sous sa tension nominale, ou réduisez les pertes en série avec lui.",
   'The supply cannot deliver the coil current: raise its maximum current, or share fewer coils on the same source.':
     'L\'alimentation ne fournit pas le courant de la bobine : augmentez son courant maximal, ou mettez moins de bobines sur la même source.',
   // Même étiquette pour les composants qui viennent d'exploser : l'explosion dit

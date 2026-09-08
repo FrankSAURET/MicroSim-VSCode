@@ -1,5 +1,10 @@
 # À faire
-- j'ai supprimé roadmap.md (noté, liens morts réparés au lot .55)
+1. ✅ Dans mesure-pico, j'alimente le moteur Act1 (5v) en 5v via l'ampèremetre. Il affiche l'erreur de tension trop faible (attention il  ne l'affiche qu'aprés que j'ai cliqué sur l'alim sans rien changer). Tu vérifie puis tu ajuste la règle 15% de Unominale il ne tourne plus et l'erreur est affichée (sauf PWM qui pourrait faire tourner le moteur si on augmentait le rapport cyclique à ce moment le moteur s'arrête mais pas d'erreur) et 150% de Unominale pour qu'il grille.
+1. ✅ Deux points notés, non traités car hors item : à 0 % M2 rend null au lieu de 0 A (préexistant, vérifié en remisant le correctif), et le hachage d'un PNP par le haut n'est pas couvert (aucun montage du dépôt ne l'utilise). Fais les 2 et ajoute un montage de test pour le pnp.
+1. Ajouter une étiquette libre sur les appareils de mesure. Vide par défaut. Si elle est remplie elle s'affiche automatiquement dans la même zone que l'id ou le nom des composants.
+1. L'emplacement de l'étiquette du ventilateur et de la carte arduino doivent être au plus proche du composant (à toucher le cadre de sélection  comme les autres). Pour le ventilateur le cadre de sélection  est mal ajusté.
+1. dans mesure-uno, j'ai rajouté un montage T4, L1, R4 qui doit allumer la led quand Vgs> vgsth mais il n emarche pas.
+
 1. Mesure-pico :
     - ✅ M3 aux bornes du ventilateur / de l'alimentation Alim1 : 5 V (lot .56)
     - ✅ Pot1 entre masse et 5 V : le curseur balaie 0 à 5 V, plus de négatif (lot .56)
@@ -10,6 +15,28 @@
 2. ✅ Nouvelle couleur du multimètre appliquée (lot .57)
 
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.58 — Un moteur calé le dit, un PNP se juge par le bas
+
+1. ✅ **L'erreur que voyait Frank n'était PAS « tension trop faible »** (item 1) : le banc `mesure-pico` affiche `starved` — « l'alimentation ne peut pas fournir le courant du moteur ». Reproduit hors interface : Act1 (5 V / 0,1 A, donc 50 Ω) demande **95,8 mA** sous 4,79 V, et le PN2222A qui le commande n'en laisse passer que **91 mA**. Le transistor sort tout juste de la saturation, de 5 %.
+2. ℹ️ **La cause est au catalogue, et elle est laissée telle quelle** : `transistors.mts` donne `gain: 35` au PN2222A, d'où Icmax = 2,6 mA × 35 = 91 mA. La fiche technique du composant réel annonce pourtant hFE **min 75** à 150 mA — le 35 correspond au gain à 500 mA, en limite de boîtier. Retoucher ce gain sortait du périmètre de l'item : **à trancher par Frank**, c'est la seule raison pour laquelle ce montage se plaint.
+3. ✅ **Le message n'apparaissait qu'après un clic sur l'alimentation** parce que rien ne le rejouait : la revue des défauts moteur ne tourne qu'à un changement d'état du circuit. Comportement inchangé — c'est le défaut lui-même qui était mal identifié, pas le moment où il s'affiche.
+4. ✅ **Seuil de démarrage abaissé de 30 % à 15 % de la tension nominale** ([model.mts](src/webview/diagram/model.mts), `MOTOR_START_RATIO`), comme demandé. Sous ce seuil le moteur ne tourne plus **et le dit** : nouveau défaut `weak`, « Tension trop faible : le moteur ne tourne pas ». Jusqu'ici il se contentait de rester immobile, sans un mot — l'élève ne pouvait pas savoir pourquoi.
+5. ✅ **Sauf en commande hachée, et c'est le point délicat de l'item.** Un moteur sous PWM passe par le bas de l'échelle à chaque rampe de vitesse : le câblage est bon, seule la consigne est basse, et ouvrir le rapport cyclique suffit à le faire repartir. Lui coller une erreur reviendrait à crier au défaut à chaque ralentissement. Le moteur **s'arrête** (`speed: 0`) mais **aucun message** n'est dit — exactement la règle formulée par Frank. Distinction portée par le champ `chopped` de `FanCircuit`, déjà posé au lot .55.
+6. ✅ **Seuil de grillage laissé à 150 %** (`MOTOR_BURN_RATIO`), qui était déjà la valeur demandée, et désormais **couvert par des contrôles** : 160 % grille (`overvolt`), 140 % survit en survitesse. Il ne tenait à rien jusqu'ici.
+7. ✅ **À 0 % de rapport cyclique, l'ampèremètre lit enfin 0 A** (item 2, premier point — le défaut préexistant noté au .57). `theveninNode` ne rend aucun potentiel du côté d'un transistor bloqué, et `readMetersOnce` en concluait « prise en l'air, rien à mesurer ». Nouvelle aide `pinWired` : **deux prises câblées + une sans source = branche coupée = 0 A**. Une prise réellement en l'air garde `null`.
+8. ✅ **Le voltmètre, lui, garde `null` dans ce cas, et c'est voulu** : une tension entre un nœud vivant et un nœud flottant n'est pas définie. Un courant nul l'est parfaitement — il ne passe rien. La distinction ne vaut donc que pour le mode ampèremètre.
+9. ✅ **Le hachage d'un PNP par le haut est couvert** (item 2, second point). Le raccourci du lot .57 — « une broche qui hache est vue ACTIVE » — forçait le niveau **haut**, qui est précisément celui qui **bloque** un PNP. `commandedBridges` résout donc maintenant les états de transistor **deux fois** : broche haute pour les NPN et les canaux N, broche **basse** pour les PNP et les canaux P, chacun jugé sur sa passe.
+10. ✅ **Le rapport cyclique est complémenté pour un PNP** : il conduit pendant la fraction **basse** du signal, donc `1 − duty`. À 25 % de temps haut, il conduit 75 % du temps — le moteur tourne aux trois quarts. Commande **inversée** de bout en bout : 0 % = plein régime, 100 % = arrêt.
+11. ✅ **Un piège trouvé en écrivant les contrôles** : le test « la broche hache-t-elle ? » s'écrivait `duty > 0`. Un PNP à **0 %** — donc base basse en permanence, donc conduisant **à plein** — retombait alors sur le niveau instantané et se retrouvait bloqué. Le test porte désormais sur l'**existence** d'un rapport cyclique (`!== null`), pas sur sa valeur : 0 % est une consigne, pas une absence de commande.
+12. ✅ **Banc de test neuf `variateur-pnp-uno` / `variateur-pnp-pico`** (demandé par l'item) : PNP entre le + et le moteur, base pilotée à travers 1 kΩ, roue libre, voltmètre, ampèremètre et oscilloscope. La broche y est lue **HAUTE** — l'instant qui bloque un PNP — et les mesures ne doivent pas en dépendre : M1 lit **3,6 V** et M2 **71,9 mA** à 25 % de temps haut.
+13. ✅ **Dix-sept contrôles neufs** dans `verify:motor` : douze pour le PNP (à 0 / 25 / 50 / 75 / 100 %, chacun vérifié sur les **deux** niveaux de lecture — la mesure doit être identique, sans saut) et cinq pour les seuils (14 % cale et le dit, 16 % tourne sans rien dire, 160 % grille, 140 % survit). Le contrôle du seuil a été réaccordé : 1,4 V tourne désormais, 0,7 V est le nouveau cas sous la barre.
+14. ✅ **Aucune régression** : suite complète **104/104 bancs joués**, typecheck sans erreur, construction faite. `verify:transistor` (174 contrôles), `verify:fan`, `verify:multimetre` et `verify:oscillo` passent inchangés — et `verify:rfid:e2e`, en échec depuis avant le .55, **est repassé au vert** de lui-même.
+15. ℹ️ **`verify:i18n` reste le seul échec, préexistant et inchangé** : les six libellés `Vce(sat)` / `Vgs(th)` attendent la publication, comme le veut la règle des traductions. Les deux chaînes neuves de ce lot (« Tension trop faible… ») sont, elles, dans le dictionnaire FR de la webview — il est tenu au fil de l'eau, à la différence de `l10n/bundle.l10n.fr.json`.
+16. ℹ️ **Deux fichiers modifiés hors de ce lot, non touchés** : `testkablix/Arduino/mesure-uno/mesure-uno.projix` (1,5 ko → 93 ko, un composant `M9:multimetre` ajouté et 815 ko de `customParts`) et `testkablix/.vscode/arduino.yaml`, qui pointe désormais vers `mesure-uno.ino`. Vérifié : la spec ne contient pas M9 et le générateur n'écrit `customParts` que pour un banc à `kompix`. Ils viennent d'une session F5 de Frank — **à lui de dire s'il les garde**.
+17. ℹ️ **Cinq scripts de reproduction déplacés**, pas supprimés : `scripts/_tmp-*.mjs` → `A Examiner/scripts/`, où ils rejoignent leurs prédécesseurs.
+
 ---
 
 # >>>>  v2026.9.2.57 — Une broche qui hache n'a pas de niveau instantané

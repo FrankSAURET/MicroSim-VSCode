@@ -1575,6 +1575,8 @@ function reportMotorFaults(): void {
       setStatus(`${t('A flyback diode is required')} (${st.partId})`);
     } else if (st.fault === 'starved') {
       blame(t('The supply cannot deliver the motor current'), st.partId, t('The supply cannot deliver the current this motor draws: a board pin is far too weak for a motor. Use a power supply and a transistor.'));
+    } else if (st.fault === 'weak') {
+      blame(t('Motor voltage too low: it does not turn'), st.partId, t('Too little voltage to overcome the motor friction: the rotor stays stalled and the winding heats up. Supply it at its rated voltage, or cut the losses in series with it.'));
     } else if (st.fault === 'overvolt') {
       setStatus(`${t('Motor overvoltage: it burned out')} (${st.partId})`);
     }
