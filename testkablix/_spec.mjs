@@ -2738,7 +2738,12 @@ void loop() {
   //      affaissent l'alimentation, et le voltmètre le montre.
   //   3. RELAIS commandé par un second transistor, M4 aux bornes de sa bobine.
   //   4. POTENTIOMÈTRE en pont sur l'alimentation, M5 sur son curseur.
-  // Les six appareils mesurent EN MÊME TEMPS : aucun ne perturbe les autres.
+  //   5. MOSFET (BS170) commandant une charge résistive, M8 sur son Vds : un
+  //      MOSFET passant est une RÉSISTANCE (Rds(on)), pas une chute fixe — sa
+  //      tension de déchet suit le courant, là où celle d'un bipolaire ne bouge
+  //      pas. M6, aux bornes de T2, donne le Vce(sat) du bipolaire pour comparer.
+  //   M7 est posé sur le 3,3 V de la carte : un régulateur tient sa tension.
+  // Les neuf appareils mesurent EN MÊME TEMPS : aucun ne perturbe les autres.
   test({
     name: 'mesure-uno', board: 'uno', ext: 'ino',
     parts: [
@@ -2764,6 +2769,19 @@ void loop() {
       // 4. potentiomètre
       { id: 'Pot1', type: 'pot', x: 1280, y: 640, attrs: { min: '0', max: '100', value: '50' } },
       { id: 'M5', type: 'multimetre', x: 1540, y: 640, attrs: { mode: 'voltage' } },
+      // 5. MOSFET : commandé en TENSION (aucune résistance de grille, une grille
+      //    ne prend pas de courant) et passant il est une RÉSISTANCE de 2,5 Ω.
+      { id: 'T3', type: 'transistor', x: 440, y: 1160, attrs: {
+        pkg: 'to92', symbol: 'nmos', schema: 'nmos-d',
+        text: 'BS\n170', named: '1', ref: 'BS170',
+        s: '3', g: '2', d: '1', gain: '0', rdson: '2.5', vgsth: '2.1', vcemax: '60', icmax: '0.5',
+      } },
+      { id: 'R3', type: 'resistor', x: 640, y: 1080, attrs: { value: '100' } },
+      { id: 'M8', type: 'multimetre', x: 960, y: 1160, attrs: { mode: 'voltage' } },
+      // Vce(sat) du bipolaire, à comparer au Vds(on) du MOSFET juste au-dessus.
+      { id: 'M6', type: 'multimetre', x: 120, y: 930, attrs: { mode: 'voltage' } },
+      // Le rail 3,3 V de la carte : un régulateur tient sa tension.
+      { id: 'M7', type: 'multimetre', x: 120, y: 670, attrs: { mode: 'voltage' } },
     ],
     wires: () => [
       // 1. variateur : D9 -> 1 kΩ -> base ; moteur entre l'alim et le collecteur.
@@ -2803,22 +2821,51 @@ void loop() {
       w('Pot1', 'GND', 'U1', 'GND.1', 'black'),
       w('M5', '+', 'Pot1', 'SIG', 'green'),
       w('M5', 'GND', 'Pot1', 'GND', 'black'),
+      // 5. MOSFET : D7 attaque la grille EN DIRECT, la charge est entre l'alim
+      //    et le drain, la source à la masse. M8 lit ce qui reste au drain.
+      w('T3', 'G', 'U1', '7', 'yellow'),
+      w('R3', '1', 'Alim1', 'V+', 'red'),
+      w('R3', '2', 'T3', 'D', 'blue'),
+      w('T3', 'S', 'Alim1', 'GND', 'black'),
+      w('M8', '+', 'T3', 'D', 'blue'),
+      w('M8', 'GND', 'T3', 'S', 'black'),
+      // Vce(sat) du bipolaire du relais.
+      w('M6', '+', 'T2', 'C', 'blue'),
+      w('M6', 'GND', 'T2', 'E', 'black'),
+      // Le 3,3 V de la carte, mesuré par rapport à sa masse.
+      w('M7', '+', 'U1', '3.3V', 'red'),
+      w('M7', 'GND', 'U1', 'GND.3', 'black'),
     ],
     expect: {
       kind: 'meter', volts: 5, bridges: true,
-      drive: { 9: 'high', 8: 'high' },
+      drive: { 9: 'high', 8: 'high', 7: 'high' },
       pwm: { 9: 0.5 },
       readings: [
         // Le transistor ne conduit que la moitié du temps : le moteur ne reçoit
         // que la moitié de la tension et n'appelle que la moitié du courant.
-        { partId: 'M1', mode: 'voltage', value: 2.303, tol: 0.02 },
-        { partId: 'M2', mode: 'current', value: 0.040075, tol: 0.002 },
-        // Le ventilateur tire 850 mA : l'alimentation s'affaisse sous 3,7 V.
-        { partId: 'M3', mode: 'voltage', value: 3.703, tol: 0.02 },
-        { partId: 'M4', mode: 'voltage', value: 4.724, tol: 0.02 },
-        { partId: 'M5', mode: 'voltage', value: 1.837, tol: 0.02 },
+        // Les deux appareils sont d'ACCORD : 2,395 V pour 47,904 mA, soit les
+        // 50 Ω du moteur (5 V / 0,1 A). Ils se contredisaient avant le lot .56.
+        { partId: 'M1', mode: 'voltage', value: 2.395, tol: 0.02 },
+        { partId: 'M2', mode: 'current', value: 0.047904, tol: 0.002 },
+        // Une alimentation de laboratoire de 5 V DONNE 5 V : c'est une source de
+        // tension, pas un rail qu'on tire. Elle lisait 3,703 V avant le lot .56,
+        // les rails se chargeant les uns les autres à travers leur résistance.
+        { partId: 'M3', mode: 'voltage', value: 5, tol: 0.02 },
+        // La bobine du relais sur le 5 V de la carte : 4,8 V, la chute étant
+        // celle de la sortie du microcontrôleur (25 Ω), pas celle du rail.
+        { partId: 'M4', mode: 'voltage', value: 4.8, tol: 0.02 },
+        // Le curseur au milieu d'un pont de 5 V : la moitié, exactement.
+        { partId: 'M5', mode: 'voltage', value: 2.5, tol: 0.02 },
+        // MOSFET passant = RÉSISTANCE : 2,5 Ω de Rds(on) contre 100 Ω de charge,
+        // soit 5 × 2,5/102,5. Le rail n'ajoute plus rien depuis le lot .56.
+        { partId: 'M8', mode: 'voltage', value: 0.122, tol: 0.02 },
+        // Bipolaire saturé = CHUTE FIXE : le Vce(sat) du PN2222A, indépendant de
+        // la charge. C'est TOUTE la différence avec M8 juste au-dessus.
+        { partId: 'M6', mode: 'voltage', value: 0.2, tol: 0.02 },
+        // Un régulateur tient sa tension : 3,3 V, pas 2,67 V.
+        { partId: 'M7', mode: 'voltage', value: 3.3, tol: 0.02 },
         // L'oscilloscope ne lisse RIEN : il donne la hauteur du créneau.
-        { partId: 'O1', mode: 'voltage', value: 4.337, tol: 0.02 },
+        { partId: 'O1', mode: 'voltage', value: 5, tol: 0.02 },
       ],
     },
     code: `// BANC DE MESURE : cinq montages sur une planche, six appareils dessus.
@@ -2884,6 +2931,15 @@ void loop() {
       { id: 'M4', type: 'multimetre', x: 960, y: 900, attrs: { mode: 'voltage' } },
       { id: 'Pot1', type: 'pot', x: 1280, y: 640, attrs: { min: '0', max: '100', value: '50' } },
       { id: 'M5', type: 'multimetre', x: 1540, y: 640, attrs: { mode: 'voltage' } },
+      { id: 'T3', type: 'transistor', x: 440, y: 1160, attrs: {
+        pkg: 'to92', symbol: 'nmos', schema: 'nmos-d',
+        text: 'BS\n170', named: '1', ref: 'BS170',
+        s: '3', g: '2', d: '1', gain: '0', rdson: '2.5', vgsth: '2.1', vcemax: '60', icmax: '0.5',
+      } },
+      { id: 'R3', type: 'resistor', x: 640, y: 1080, attrs: { value: '100' } },
+      { id: 'M8', type: 'multimetre', x: 960, y: 1160, attrs: { mode: 'voltage' } },
+      { id: 'M6', type: 'multimetre', x: 120, y: 930, attrs: { mode: 'voltage' } },
+      { id: 'M7', type: 'multimetre', x: 120, y: 670, attrs: { mode: 'voltage' } },
     ],
     wires: () => [
       w('R1', '1', 'U1', 'GP15', 'green'),
@@ -2917,21 +2973,44 @@ void loop() {
       w('Pot1', 'GND', 'U1', 'GND.7', 'black'),
       w('M5', '+', 'Pot1', 'SIG', 'green'),
       w('M5', 'GND', 'Pot1', 'GND', 'black'),
+      // Le BS170 a un Vgs(th) de 2,1 V : il s'ouvre VRAIMENT sous les 3,3 V du
+      // Pico, là où un IRF530 (3,5 V) resterait bloqué malgré un « 1 » logique.
+      w('T3', 'G', 'U1', 'GP13', 'yellow'),
+      w('R3', '1', 'Alim1', 'V+', 'red'),
+      w('R3', '2', 'T3', 'D', 'blue'),
+      w('T3', 'S', 'Alim1', 'GND', 'black'),
+      w('M8', '+', 'T3', 'D', 'blue'),
+      w('M8', 'GND', 'T3', 'S', 'black'),
+      w('M6', '+', 'T2', 'C', 'blue'),
+      w('M6', 'GND', 'T2', 'E', 'black'),
+      w('M7', '+', 'U1', '3V3', 'red'),
+      w('M7', 'GND', 'U1', 'GND.3', 'black'),
     ],
     expect: {
       kind: 'meter', volts: 3.3, bridges: true,
-      drive: { GP15: 'high', GP14: 'high' },
+      drive: { GP15: 'high', GP14: 'high', GP13: 'high' },
       pwm: { GP15: 0.5 },
       readings: [
         // Moteur, ventilateur et potentiomètre pendent à l'alimentation de
-        // laboratoire : mêmes valeurs que sur la Uno, au bruit d'alim près.
-        { partId: 'M1', mode: 'voltage', value: 2.303, tol: 0.02 },
-        { partId: 'M2', mode: 'current', value: 0.040075, tol: 0.002 },
-        { partId: 'M3', mode: 'voltage', value: 3.714, tol: 0.02 },
+        // laboratoire : mêmes valeurs que sur la Uno, la carte ne fait que
+        // commander les transistors.
+        { partId: 'M1', mode: 'voltage', value: 2.395, tol: 0.02 },
+        { partId: 'M2', mode: 'current', value: 0.047904, tol: 0.002 },
+        { partId: 'M3', mode: 'voltage', value: 5, tol: 0.02 },
         // La bobine, elle, est sur le 3,3 V de la carte : elle voit moins.
-        { partId: 'M4', mode: 'voltage', value: 3.051, tol: 0.02 },
-        { partId: 'M5', mode: 'voltage', value: 1.849, tol: 0.02 },
-        { partId: 'O1', mode: 'voltage', value: 2.649, tol: 0.02 },
+        { partId: 'M4', mode: 'voltage', value: 3.1, tol: 0.02 },
+        { partId: 'M5', mode: 'voltage', value: 2.5, tol: 0.02 },
+        // Le BS170 s'ouvre bien sous 3,3 V (Vgs(th) 2,1 V) : mêmes 0,122 V que
+        // sur la Uno, la charge et l'alimentation étant les mêmes.
+        { partId: 'M8', mode: 'voltage', value: 0.122, tol: 0.02 },
+        // Vce(sat) est une chute FIXE : le PN2222A lit sa propriété, 0,2 V, que
+        // la carte soit une Uno ou un Pico.
+        { partId: 'M6', mode: 'voltage', value: 0.2, tol: 0.02 },
+        // Le 3,3 V du RP2040 : la fiche technique annonce 3,25 à 3,33 V.
+        { partId: 'M7', mode: 'voltage', value: 3.3, tol: 0.02 },
+        // Le créneau du Pico monte à 3,3 V, pas 5 V — et l'oscilloscope le voit
+        // en entier, quel que soit le rapport cyclique.
+        { partId: 'O1', mode: 'voltage', value: 3.3, tol: 0.02 },
       ],
     },
     code: `# BANC DE MESURE : cinq montages sur une planche, six appareils dessus.

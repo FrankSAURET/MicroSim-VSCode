@@ -1,6 +1,34 @@
 # À faire
 - j'ai supprimé roadmap.md (noté, liens morts réparés au lot .55)
+1. Mesure-pico :
+    - ✅ M3 aux bornes du ventilateur / de l'alimentation Alim1 : 5 V (lot .56)
+    - ✅ Pot1 entre masse et 5 V : le curseur balaie 0 à 5 V, plus de négatif (lot .56)
+    - ✅ Test d'un transistor MOS ajouté sur les deux bancs (T3 BS170 + M8) (lot .56)
+    - ✅ M6 (Vce du PN2222A) : 0,2 V, positif et égal à la propriété Vce(sat) (lot .56)
+    - ✅ M7 aux bornes du 3,3 V du Pico : 3,3 V (lot .56)
+    - ⬜ L'affichage de M1 n'est pas stable à 1 kHz il devrait l'être.
+2. J'ai modifié le multimètre (juste changement de la couleur pour le différencier de l'alim) applique la nouvelle couleur.
+
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.56 — Un rail donne sa tension, la masse vaut zéro
+
+1. ✅ **Cinq anomalies du banc `mesure-pico` signalées par Frank, DEUX défauts pour de bon** (item 1). Le voltmètre lisait 3,71 V aux bornes d'une alimentation de 5 V (M3), un Vce **négatif** (M6, −0,43 V), 2,67 V sur le 3,3 V du Pico (M7), et un potentiomètre qui balayait **−0,65 à 4,35 V**. Une seule chaîne causale derrière tout ça.
+2. ✅ **Défaut n°1 — une carte n'a pas UN rail, mais plusieurs** ([model.mts](src/webview/diagram/model.mts)). `circuitSources` posait la tension **logique** de la carte sur toute broche de rôle `vcc`. Sur un Pico, `VBUS` et `VSYS` (5 V réels) se retrouvaient donc à 3,3 V — et une alimentation de laboratoire branchée là-dessus était **ramenée à la tension de la carte**. Nouveau `railPinVolts` : `3V3` → 3,3 V, `VBUS`/`VSYS`/`5V*` → 5 V, le reste à la tension logique. Deux rails réunis par un fil : le plus haut impose.
+3. ✅ **Défaut n°2 — un nœud posé SUR un rail se faisait moyenner avec ses voisins.** `theveninNode` calcule chaque nœud isolément (Thévenin par nœud + Millman), sans résoudre le circuit globalement. Un nœud **sur** un rail n'a rien à moyenner : c'est une équipotentielle. Sans ce raccourci, le 3,3 V du Pico se faisait tirer à 2,62 V par la masse et par les rails 5 V voisins.
+4. ✅ **C'est là qu'était le Vce négatif, et la cause est instructive** : la **masse** flottait à **+47 mV**. Physiquement absurde — la masse est la référence des potentiels, elle vaut zéro par définition. Tant que les deux bornes d'un appareil portaient le même décalage, il s'annulait et **rien ne se voyait** ; dès que ce n'était plus le cas, la différence partait dans le négatif.
+5. ✅ **`RAIL_OHMS` servait deux rôles incompatibles, d'où trois faux départs.** Le premier correctif (rails idéaux) laissait `verify:transistor` lire 0,247 V au lieu de 0,200 ; le deuxième (masse à 0, rails mous) n'y changeait rien. Le diagnostic a tranché : cette résistance de 1 Ω entrait dans le **diviseur de Millman** et ajoutait une chute **continue** à chaque mesure — alors qu'une alimentation régulée qui débite 48 mA ne perd pas 47 mV.
+6. ✅ **Les deux rôles séparés** : les rails deviennent des sources **idéales** (0 Ω) pour le calcul des potentiels, et la constante renommée `RC_FLOOR_OHMS` ne sert plus qu'à **planchéier τ = R·C** — sans quoi un condensateur se chargerait en un temps nul et tous les retards d'antirebond disparaîtraient. Le plancher de conductance `Math.max(0.1, …)` de `theveninNode`, jusque-là inoffensif, devenait lui aussi une résistance série parasite : ramené à une simple garde contre la division par zéro.
+7. ✅ **Ce que lisent les appareils, après** : M3 **5,000 V** (contre 3,71), M6 **0,200 V** — exactement la propriété `Vce(sat)`, contre −0,43 —, M7 **3,300 V** (contre 2,67), M5 **2,500 V** au milieu du pont. Le potentiomètre balaie **0,000 / 1,250 / 2,500 / 3,750 / 5,000 V**, linéaire au chiffre près.
+8. ✅ **Une sixième anomalie que Frank n'avait pas listée** : le MOSFET du nouveau montage lisait **−0,4955 V**, même cause. Il lit maintenant **0,122 V**, soit 5 × 2,5/102,5 — la loi d'Ohm sur le `Rds(on)`, comme il se doit pour un canal résistif.
+9. ✅ **M1 et M2 ne se contredisent plus.** Avant, 2,303 V pour 40,075 mA — soit 57,5 Ω, alors que le moteur en fait 50. Maintenant **2,395 V pour 47,904 mA**, exactement les 50 Ω du moteur (5 V / 0,1 A). Les deux appareils mesurent enfin le même circuit.
+10. ✅ **Montage MOSFET ajouté aux deux bancs** (item 1) : T3 (BS170, `Rds(on)` 2,5 Ω, `Vgs(th)` 2,1 V) commuté par la carte, charge R3 de 100 Ω, M8 aux bornes du drain-source. Plus M6 (Vce du PN2222A) et M7 (rail 3,3 V). Les deux bancs passent de six à **neuf appareils** mesurant simultanément.
+11. ✅ **Le banc oppose maintenant les deux natures de transistor côte à côte** : M8 (MOSFET) est une **résistance** — sa chute suit le courant —, M6 (bipolaire saturé) est une **chute fixe** — 0,2 V quelle que soit la charge. C'est toute la différence entre les deux familles, lisible sur une seule planche.
+12. ✅ **Non-régression du lot .55 vérifiée** : la linéarité PWM tient (0 % → 0 V jusqu'à 100 %), et O1 garde toute la hauteur du créneau quel que soit le rapport cyclique — un oscilloscope montre l'impulsion, il n'en donne pas la moyenne. Sa hauteur passe simplement à la vraie tension de sortie (3,3 V sur Pico).
+13. ✅ **Régénération limitée aux deux bancs du lot** (`_generate.mjs mesure-uno mesure-pico`) : les schémas retouchés à la main par Frank gardent leurs emplacements.
+14. ℹ️ **`verify:rfid` et `verify:i18n` restent en échec, tous deux préexistants** et sans rapport avec ce lot : le premier depuis avant le .55, le second attend les six libellés `Vce(sat)` / `Vgs(th)` en français — **avant publication**, comme le veut la règle des traductions.
+
 ---
 
 # >>>>  v2026.9.2.55 — Le rapport cyclique arrive enfin jusqu'aux appareils

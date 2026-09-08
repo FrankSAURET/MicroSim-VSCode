@@ -1279,10 +1279,37 @@ export function ledElectrical(
 /** Ce que le microcontrôleur impose sur une broche (cf. SimEngine.readPinDrive). */
 export type PinDrive = 'high' | 'low' | 'pullup' | 'pulldown' | 'hiz';
 
-/** Résistance interne (Ω) des sources vues par un réseau RC. */
-const RAIL_OHMS = 1; //         rail d'alimentation (carte ou alim de labo)
+/**
+ * Résistance (Ω) PLANCHER d'un réseau RC alimenté par un rail.
+ *
+ * Un rail est une source idéale pour le calcul des potentiels : une alimentation
+ * régulée qui débite 48 mA ne perd pas 47 mV. Mais une source idéale chargerait
+ * un condensateur en un temps NUL (τ = R·C avec R = 0), ce qui ferait disparaître
+ * tous les retards d'antirebond et de démarrage. Cette valeur ne sert donc qu'à
+ * planchéier τ — elle n'entre PAS dans le diviseur de tension continu.
+ */
+const RC_FLOOR_OHMS = 1;
 const MCU_OUTPUT_OHMS = 25; //  sortie numérique en conduction
 const MCU_PULL_OHMS = 65_000; // rappel interne (RP2040 50-80 kΩ, AVR 20-50 kΩ)
+
+/**
+ * Tension (V) d'une broche d'ALIMENTATION de carte, d'après son nom.
+ *
+ * Une carte expose plusieurs rails à des tensions différentes, et `vcc` (la
+ * tension LOGIQUE de la carte : 5 V sur AVR, 3,3 V sur RP2040) n'en décrit qu'un
+ * seul. `VBUS` est l'USB brut, `VSYS` l'entrée du régulateur — 5 V l'un comme
+ * l'autre sur un Pico alimenté par USB — pendant que `3V3` est la sortie du
+ * régulateur. Sur une carte AVR c'est l'inverse : `5V` est le rail logique et
+ * `3.3V` la sortie auxiliaire du régulateur.
+ *
+ * La fiche technique du RP2040 annonce 3,25 à 3,33 V à faible courant : on tient
+ * les 3,3 V nominaux, un régulateur n'étant pas une source molle (Frank, M7).
+ */
+function railPinVolts(pin: string, vcc: number): number {
+  if (pin === '3V3' || pin === '3.3V') return 3.3;
+  if (pin === 'VBUS' || pin === 'VSYS' || pin.startsWith('5V')) return 5;
+  return vcc; // IOREF, VIN : la tension logique de la carte
+}
 
 /** Nœud RC : un condensateur, sa source de Thévenin et les broches qui l'observent. */
 export interface CapacitorNode {
@@ -1352,7 +1379,9 @@ export function capacitorNodes(
     const th = theveninNode(hot, sources, sourceNets, adj);
     if (th) {
       node.target = th.volts;
-      node.tau = farads > 0 ? th.ohms * farads : 0;
+      // Plancher : un rail sans résistance chargerait le condensateur en un temps
+      // nul et supprimerait tout retard (antirebond, démarrage).
+      node.tau = farads > 0 ? Math.max(th.ohms, RC_FLOOR_OHMS) * farads : 0;
     }
     out.push(node);
   }
@@ -1387,17 +1416,36 @@ function circuitSources(
   pwmVolts?: (pin: string) => number | null
 ): { sources: CircuitSource[]; pinsOnNet: Map<string, string[]> } {
   const sources: CircuitSource[] = [];
-  for (const net of vccNets) {
-    let volts = vcc;
-    for (const psu of psuParts(diagram)) {
-      if (nets.netOf({ partId: psu.id, pin: 'V+' }) !== net) continue;
-      const v = psuVolts?.(psu.id) ?? Number(psu.attrs?.voltage ?? 0);
-      if (Number.isFinite(v)) volts = v;
-      break;
+  // Tension PROPRE à chaque rail. Une carte n'a pas UN rail mais plusieurs, à
+  // des tensions différentes : sur un Pico, `3V3` sort du régulateur à 3,3 V
+  // pendant que `VBUS` et `VSYS` sont à 5 V. Les mettre tous à `vcc` faisait
+  // lire 2,67 V sur le 3,3 V du Pico (Frank, banc mesure-pico) et ramenait une
+  // alim de laboratoire de 5 V à la tension de la carte.
+  const railVolts = new Map<string, number>();
+  for (const { part, board } of mcuParts(diagram)) {
+    for (const pin of mcuPins(board)) {
+      if (mcuPinRole(board, pin).role !== 'vcc') continue;
+      const net = nets.netOf({ partId: part.id, pin });
+      const v = railPinVolts(pin, vcc);
+      // Deux rails réunis par un fil (3V3 câblé sur VSYS) : la plus haute
+      // tension l'emporte, c'est elle qui impose au nœud commun.
+      railVolts.set(net, Math.max(railVolts.get(net) ?? 0, v));
     }
-    sources.push({ net, volts, ohms: RAIL_OHMS });
   }
-  for (const net of gndNets) sources.push({ net, volts: 0, ohms: RAIL_OHMS });
+  for (const psu of psuParts(diagram)) {
+    const net = nets.netOf({ partId: psu.id, pin: 'V+' });
+    const v = psuVolts?.(psu.id) ?? Number(psu.attrs?.voltage ?? 0);
+    if (Number.isFinite(v)) railVolts.set(net, Math.max(railVolts.get(net) ?? 0, v));
+  }
+  // Résistance NULLE : un rail est une source idéale. Lui donner une résistance
+  // interne la faisait entrer dans le diviseur de Millman, et chaque mesure
+  // portait une chute fictive — le Vce d'un transistor saturé lisait 0,247 V au
+  // lieu de 0,200 (banc transistor), le ventilateur du banc 4,37 V au lieu de 5.
+  // La constante de temps des réseaux RC est planchéiée à part (RC_FLOOR_OHMS).
+  for (const net of vccNets) {
+    sources.push({ net, volts: railVolts.get(net) ?? vcc, ohms: 0 });
+  }
+  for (const net of gndNets) sources.push({ net, volts: 0, ohms: 0 });
   const pinsOnNet = new Map<string, string[]>();
   for (const { part, board } of mcuParts(diagram)) {
     for (const pin of mcuPins(board)) {
@@ -1467,6 +1515,29 @@ function theveninNode(
   sourceNets: ReadonlySet<string>,
   adj: Map<string, ResistiveEdge[]>
 ): { volts: number; ohms: number } | null {
+  // Un nœud POSÉ SUR UN RAIL est tenu par ce rail, et n'a pas à voir son
+  // potentiel moyenné avec ceux du reste du montage : un rail est une
+  // équipotentielle, pas un nœud de passage. Sans ce court-circuit du calcul, le
+  // 3,3 V d'un Pico se faisait tirer à 2,62 V par la masse et par les rails 5 V
+  // voisins à travers leur résistance interne, et le voltmètre l'affichait (M7 du banc
+  // mesure-pico) ; une alimentation de laboratoire de 5 V, elle, tombait à 3,7 V
+  // (M3) alors qu'elle ne débitait presque rien.
+  //
+  // La MASSE en est le cas le plus visible : c'est la RÉFÉRENCE des potentiels,
+  // elle vaut zéro par définition. Elle flottait auparavant à +47 mV, ce qui
+  // décalait le nœud du bas de chaque montage — décalage invisible tant que le
+  // nœud du haut portait le même, et qui devenait un Vce négatif dès que ce
+  // n'était plus le cas (Frank, M6 à −0,43 V).
+  //
+  // La tension rendue est celle du rail, sans chute : une alim régulée qui débite
+  // 48 mA ne perd pas 47 mV, sa régulation tient. Le retard des réseaux RC est
+  // obtenu à part, par un plancher sur τ (RC_FLOOR_OHMS).
+  const railIci = sources.filter((s) => s.net === hot && s.ohms === 0);
+  if (railIci.length > 0) {
+    // Deux rails réunis par un fil (3V3 câblé sur VSYS) : le plus haut impose.
+    const tenu = railIci.reduce((a, b) => (b.volts > a.volts ? b : a));
+    return { volts: tenu.volts, ohms: 0 };
+  }
   // Tension la plus haute du montage : au-delà, une pile de diodes ne peut plus
   // s'amorcer (trois LED bleues en série ne conduisent pas sous 5 V).
   const vTop = sources.reduce((m, s) => Math.max(m, s.volts), 0);
@@ -1489,7 +1560,13 @@ function theveninNode(
     if (path === null) continue;
     const drop = src.net === hot ? 0 : reached.drop ?? 0;
     const volts = src.volts > 0 ? src.volts - drop : src.volts + drop;
-    branches.push({ volts, drop, source: src.volts, g: 1 / Math.max(0.1, path + src.ohms) });
+    // Conductance de la branche. Le plancher n'est là que contre la division par
+    // zéro d'un court-circuit franc (résistance nulle de bout en bout) : il doit
+    // rester NÉGLIGEABLE devant les résistances du montage, sinon il se comporte
+    // en résistance série parasite. À 0,1 Ω il ajoutait 50 mV au Vce d'un
+    // transistor saturé sur une charge de 10 Ω (banc transistor).
+    const r = path + src.ohms;
+    branches.push({ volts, drop, source: src.volts, g: 1 / (r > 0 ? r : 1e-9) });
   }
   // Millman : le générateur équivalent d'un paquet de branches en parallèle.
   const millman = (
