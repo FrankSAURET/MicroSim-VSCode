@@ -98,6 +98,13 @@ async function run() {
 			ecartBandeauCadre: rs ? +(rs.top - rh.bottom).toFixed(1) : null,
 			// Le bandeau doit démarrer au bord gauche du cadre.
 			ecartBandeauGauche: rs ? +(rh.left - rs.left).toFixed(1) : null,
+			// Largeur du bandeau contre celle de son TEXTE (spans visibles) plus
+			// le padding horizontal : la barre grise ne doit plus s'étirer sur la
+			// largeur du composant derrière deux caractères d'id.
+			bandeauW: +rh.width.toFixed(1),
+			texteW: +([...head.children]
+				.filter((c) => getComputedStyle(c).display !== 'none')
+				.reduce((s, c) => s + c.getBoundingClientRect().width, 0) + 12).toFixed(1),
 			corps: { w: +rb.width.toFixed(1), h: +rb.height.toFixed(1) },
 		});
 	}
@@ -167,6 +174,14 @@ for (const r of rows) {
 		`${r.type} : bas du bandeau à ${r.ecartBandeauCadre} px du haut du cadre (|écart| ≤ 2)`);
 	ok(r.ecartBandeauGauche !== null && Math.abs(r.ecartBandeauGauche) <= 2,
 		`${r.type} : bandeau aligné à gauche du cadre (écart ${r.ecartBandeauGauche} px)`);
+}
+
+// La barre grise se cale sur SON TEXTE et non sur le composant (Frank) : elle
+// s'étirait sur toute la largeur du corps derrière deux caractères d'id.
+console.log('— La barre grise est à la taille de son texte —');
+for (const r of rows) {
+	ok(r.bandeauW <= r.texteW + 2,
+		`${r.type} : bandeau large de ${r.bandeauW} px pour un texte de ${r.texteW} px`);
 }
 
 console.log(ko === 0 ? `\nOK — ${rows.length} composants, tous les contrôles passent.` : `\n${ko} ÉCHEC(S).`);

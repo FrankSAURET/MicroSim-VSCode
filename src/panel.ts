@@ -2136,7 +2136,11 @@ export class SimulatorPanel {
     // Recharge le schéma et la carte dans la webview (et les composants perso).
     const diagram = project.diagram as { customParts?: unknown[] } | undefined;
     const customParts = Array.isArray(diagram?.customParts) ? diagram.customParts : undefined;
-    if (customParts) {
+    // Un projet qui embarque des composants perso les rend au repli global. Un
+    // projet qui n'en a AUCUN (`customParts: []`, le cas ordinaire) ne doit rien
+    // écraser : ce repli sert quand la bibliothèque n'a pas fini de se lire, et
+    // le vider laissait la palette sans ses composants installés.
+    if (customParts && customParts.length > 0) {
       await this.context.globalState.update(CUSTOM_PARTS_KEY, customParts);
     }
     this.setCurrentBoard(project.manifest.board ?? this.currentBoard);

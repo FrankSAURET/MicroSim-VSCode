@@ -56,6 +56,17 @@ export interface PinInfo {
 
 export type MeterMode = 'current' | 'voltage';
 
+/** Teintes du corps (les deux arrêts de `linearGradient49`, le dégradé que le
+ *  dessin de Frank pose sur `rect118-7`, la coque de l'appareil). Le BLEU est
+ *  celui du dessin, gardé pour le voltmètre ; le VERT le remplace quand l'inter
+ *  passe en ampèremètre, pour que le calibre se lise d'un coup d'œil sans lire
+ *  l'écran. Vert sourd volontairement (Frank : « pas trop pétant »), même
+ *  écart clair/sombre que le bleu d'origine. */
+const CORPS_TEINTES: Record<MeterMode, [string, string]> = {
+  voltage: ['#6cc9ed', '#1aa0d5'],
+  current: ['#8fce9b', '#3f9e63'],
+};
+
 export class MultimetreElement extends HTMLElement {
   // Centres des prises banane du dessin (+ rouge à gauche, GND noire à droite).
   readonly pinInfo: PinInfo[] = [
@@ -106,6 +117,7 @@ export class MultimetreElement extends HTMLElement {
     this.updateLever();
     this.updateDisplay();
     this.updateSwitchZone();
+    this.updateCouleur();
   }
 
   private render(): void {
@@ -189,6 +201,7 @@ export class MultimetreElement extends HTMLElement {
     this.updateLever();
     this.updateDisplay();
     this.updateSwitchZone();
+    this.updateCouleur();
   }
 
   /** Clic sur l'inter : bascule courant ↔ tension, l'hôte enregistre le choix. */
@@ -204,6 +217,18 @@ export class MultimetreElement extends HTMLElement {
   private updateSwitchZone(): void {
     const zone = this.root.querySelector('#multi-switch-zone') as SVGElement | null;
     if (zone) zone.style.cursor = this.hasAttribute('simulating') ? 'pointer' : '';
+  }
+
+  /** Corps VERT en ampèremètre, BLEU en voltmètre. Le dessin de Frank n'est pas
+   *  retouché : on réécrit seulement les deux `<stop>` de son dégradé de coque,
+   *  dans le shadow DOM de cette instance — chaque multimètre du schéma garde
+   *  donc sa propre couleur, et l'export rend le SVG d'origine. */
+  private updateCouleur(): void {
+    const [clair, sombre] = CORPS_TEINTES[this.mode];
+    const haut = this.root.querySelector('#stop47') as SVGStopElement | null;
+    const bas = this.root.querySelector('#stop48') as SVGStopElement | null;
+    if (haut) haut.style.stopColor = clair;
+    if (bas) bas.style.stopColor = sombre;
   }
 
   /** Levier en haut (courant, position dessinée) ou basculé en bas (tension). */

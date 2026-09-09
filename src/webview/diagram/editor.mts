@@ -2789,11 +2789,13 @@ export class Editor {
     const d = this.measureDrawingBox(part.id) ?? { l: 0, t: 0, w, h };
     if (!deg) {
       // Sans rotation : le bandeau s'assoit sur le haut du dessin et démarre à
-      // son bord gauche, sur sa largeur (le CSS l'élargit au besoin au texte).
+      // son bord gauche. Sa LARGEUR est celle de son texte, pas celle du dessin
+      // (Frank) : un `minWidth` calé sur le composant étirait la barre grise sur
+      // toute sa largeur derrière deux caractères d'id.
       head.style.bottom = 'auto';
       head.style.top = `${d.t}px`;
       head.style.left = `${d.l}px`;
-      head.style.minWidth = `${d.w}px`;
+      head.style.minWidth = '';
       head.style.transform = 'translateY(-100%)';
       return;
     }
@@ -2819,7 +2821,7 @@ export class Editor {
     head.style.bottom = 'auto';
     head.style.top = `${bt}px`;
     head.style.left = `${bl}px`;
-    head.style.minWidth = `${Math.max(...xs) - bl}px`;
+    head.style.minWidth = ''; // largeur du texte, comme en droit
     head.style.transform = 'translateY(-100%)'; // hisse le bandeau au-dessus
   }
 

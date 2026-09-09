@@ -362,10 +362,34 @@ async function run() {
 		const b = sh.querySelector('#circle58').getBoundingClientRect();
 		return b.y + b.height / 2;
 	};
+	// Couleur PEINTE de la coque. On sérialise le SVG du composant, on le rend
+	// dans un canvas et on lit un pixel du haut de la coque : c'est la seule
+	// preuve que la surcharge des deux stops atteint bien le dégradé qui peint la
+	// coque : celui-ci référence linearGradient49 par xlink:href, jamais en
+	// direct, et un stop modifié pourrait très bien ne pas s'y propager.
+	const coque = async () => {
+		const xml = new XMLSerializer().serializeToString(sh.querySelector('svg'));
+		const img = new Image();
+		await new Promise((ok, ko) => {
+			img.onload = ok; img.onerror = ko;
+			img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+		});
+		const c = document.createElement('canvas');
+		c.width = 270; c.height = 90;
+		const cx = c.getContext('2d');
+		cx.drawImage(img, 0, 0, 270, 90);
+		// L'écran recouvre presque toute la coque : il n'en reste qu'un liseré.
+		// On lit à mi-hauteur, entre le bord gauche de la coque (x 11,9) et celui
+		// de l'écran (x 16,6) — le seul endroit où la coque est vraiment visible.
+		const d = cx.getImageData(14, 45, 1, 1).data;
+		return [d[0], d[1], d[2]];
+	};
+	res.coqueVolt = await coque();
 	res.levVolt = /rotate\\(180/.test(lev());
 	const yVolt = bouleY();
 	el.setAttribute('mode', 'current');
 	await wait(5);
+	res.coqueAmp = await coque();
 	res.levAmp = lev() === '';
 	res.levierMonte = bouleY() < yVolt - 5;
 	// Changer de mode remet l'écran à zéro (des ampères lus comme des volts n'ont
@@ -450,6 +474,18 @@ if (chrome) {
     check('rendu : 5 V → « 5,00 V »', r.volt.join(' ') === '5,00 V');
     check('rendu : 12,345 V → « 12,3 V » (quatre chiffres utiles)', r.volt2.join(' ') === '12,3 V');
     check('rendu : mesure DANS l\'écran (voltmètre)', r.tientVolt === true);
+    // La coque change de couleur avec le calibre (Frank) : bleue en voltmètre,
+    // verte en ampèremètre. On juge la couleur PEINTE, pas l'attribut du `<stop>` :
+    // seul compte ce qui sort du dégradé référencé. « Verte » = la composante verte
+    // domine ; les écarts plafonnés tiennent la demande « pas trop pétant ».
+    const [rv, gv, bv] = r.coqueVolt ?? [0, 0, 0];
+    const [ra, ga, ba] = r.coqueAmp ?? [0, 0, 0];
+    check(`rendu : voltmètre → coque BLEUE (rgb ${rv},${gv},${bv})`, bv > gv && gv > rv);
+    check(`rendu : ampèremètre → coque VERTE (rgb ${ra},${ga},${ba})`, ga > ra && ga > ba);
+    check(`rendu : vert sourd, pas fluo (vert-rouge ${ga - ra}, vert-bleu ${ga - ba} ≤ 90)`,
+      ga - ra <= 90 && ga - ba <= 90);
+    check('rendu : la coque CHANGE de couleur à la bascule',
+      `${rv},${gv},${bv}` !== `${ra},${ga},${ba}`);
     check('rendu : voltmètre → levier basculé d\'un demi-tour', r.levVolt === true);
     check('rendu : ampèremètre → levier à sa position dessinée (en haut)', r.levAmp === true);
     check('rendu : le levier monte quand on passe en ampèremètre', r.levierMonte === true);

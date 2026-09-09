@@ -4735,6 +4735,12 @@ window.addEventListener('message', (event: MessageEvent) => {
       // Recharge un projet .projix : coupe d'abord une simulation en cours (sinon
       // le nouveau schéma se recâble sur un moteur qui tourne encore pour l'ancien).
       if (engine) stopRun();
+      // L'atelier vient du DISQUE : l'état persisté de la webview est périmé et
+      // ne doit plus être rejoué. Sans cette ligne, le message `customParts` —
+      // qui arrive APRÈS (sendCustomParts attend la bibliothèque) — rechargeait
+      // par-dessus le schéma qu'on vient d'afficher : le projet apparaissait
+      // puis s'effaçait, et la feuille restait grise (Frank, item 1).
+      restoredState = undefined;
       // Composants perso, schéma puis carte.
       loadingProject = true;
       if (Array.isArray(msg.customParts)) {

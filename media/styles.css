@@ -1845,9 +1845,10 @@ body.vscode-light .inspector__ref--nouveau {
   position: absolute;
   bottom: 100%;
   left: 0;
-  /* Largeur = la plus grande entre le composant (min-width) et le nom
-     (max-content), plafonnée pour éviter un bandeau démesuré. */
-  min-width: 100%;
+  /* Largeur = celle du TEXTE, plafonnée pour éviter un bandeau démesuré. Elle
+     valait auparavant au moins celle du composant (`min-width: 100%`) : sur un
+     composant large, la barre grise s'étirait sur toute sa largeur derrière deux
+     ou trois caractères d'id. Elle se cale désormais sur ce qu'elle porte. */
   width: max-content;
   max-width: 260px;
   box-sizing: border-box;
