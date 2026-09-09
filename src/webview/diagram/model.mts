@@ -2346,27 +2346,66 @@ export function transistorStates(
     const on = npn
       ? level(pins.b) === 1 && level(pins.e) === 0
       : level(pins.b) === 0 && level(pins.e) === 1;
-    if (!on) {
-      out.push({
-        partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop, ohms, gatePin,
-      });
-      continue;
-    }
     // MOSFET : la grille est ISOLÉE, rien n'y entre — pas de maille de base, pas
-    // de gain. Mais le niveau logique ne suffit pas à décider : la TENSION de
-    // grille doit dépasser Vgs(th). Un pont diviseur, une pile de diodes ou une
-    // sortie 3,3 V sur un MOSFET de puissance donnent bien un « 1 » logique sans
-    // ouvrir le canal — c'est exactement le piège que le modèle ignorait.
+    // de gain. Son seul critère physique est la TENSION de grille contre Vgs(th).
+    //
+    // Ce cas passe AVANT le verdict logique, et c'est l'objet du correctif : une
+    // grille attaquée par le CURSEUR D'UN POTENTIOMÈTRE — le montage de référence
+    // pour montrer le seuil — porte une tension ANALOGIQUE. Ce net n'est ni
+    // masse, ni VCC, ni sortie de porte, ni broche numérique : `netLevel` rend
+    // `undefined`, le transistor était donc déclaré bloqué et sortait d'ici sans
+    // qu'on calcule jamais son Vgs, quelle que soit la position du curseur
+    // (Frank, banc mesure-uno : T4/R4/L1 n'allumait jamais la LED).
+    //
+    // Deux régimes, selon QUI tient la grille :
+    //  - une BROCHE DE CARTE la commande → le niveau logique fait foi, comme
+    //    avant. C'est `readPin` qui sait ce que le firmware impose, et la tension
+    //    calculée ici ne le sait pas (elle ignore volontairement les broches, cf.
+    //    `mosGateVolts`) : s'y fier déclarerait bloqué un MOSFET piloté en sortie.
+    //  - PERSONNE ne la commande → elle est tenue par le montage résistif seul
+    //    (pont diviseur, potentiomètre, pile de diodes), et c'est la TENSION qui
+    //    tranche. C'est le cas neuf, celui qui était faux.
     if (mos) {
       const gate = mosGateVolts(diagram, g, part, pins, npn, vcc, readPin, psuVolts);
       const seuil = numAttr(part, 'vgsth', VGSTH_DEFAULT);
-      // Faute de tension calculable (grille en l'air côté résistif), on garde le
-      // verdict logique : le modèle ne devient jamais plus sévère qu'avant.
-      const passe = gate === null || Math.abs(gate) >= seuil;
+      // Un canal N s'ouvre sur un Vgs POSITIF, un canal P sur un Vgs négatif :
+      // `mosGateVolts` rend déjà la valeur dans le sens qui ouvre, donc un
+      // résultat négatif veut dire « commande à l'envers », pas « ça ouvre ».
+      // D'où le test signé — `Math.abs` ferait conduire un canal N dont la grille
+      // est SOUS sa source.
+      //
+      // QUI tient la grille est tranché par la résistance de Thévenin rendue
+      // avec la tension. Nulle, la grille est collée à un rail — ou rien de
+      // résistif ne la tient, et c'est la broche de carte qui décide : verdict
+      // logique, comme avant. Non nulle, un réseau de résistances la tient
+      // (pont diviseur, curseur de potentiomètre) et la TENSION fait foi, même
+      // si une broche traîne sur ce net : une entrée analogique posée là pour
+      // observer le curseur n'est pas une commande (banc mesure-uno, T4/R4/L1).
+      const parBroche = gatePin !== null && !(gate && gate.ohms > 0);
+      // Grille tenue par une BROCHE : sa tension est celle du rail LOGIQUE de la
+      // carte, et le seuil s'y applique quand même — c'est le cas classique d'un
+      // MOSFET de puissance à Vgs(th) = 6 V qu'une sortie 5 V n'ouvrira jamais,
+      // et le contrôle qui l'atteste existe depuis le lot .54. `mosGateVolts` ne
+      // peut pas le calculer : il écarte volontairement les broches de ses
+      // sources (une entrée analogique n'est pas une sortie), donc il rend
+      // null ici. La tension est reconstruite à partir du niveau de la broche.
+      // Un canal P commandé par une broche conduit sur le niveau BAS, et son Vgs
+      // vaut alors la même amplitude : le rail de la carte, dans le sens qui
+      // ouvre. `on` porte déjà la polarité, le seuil ne juge que l'amplitude.
+      const vGrille = parBroche ? (on ? vcc : 0) : gate?.volts;
+      const passe = parBroche
+        ? on && vcc >= seuil
+        : gate === null ? on : gate.volts >= seuil;
       out.push({
         partId: part.id, npn, mos, on: passe, baseAmps: 0,
         maxCollectorAmps: passe ? numAttr(part, 'icmax', 0.5) : 0,
-        drop, ohms, gateVolts: gate ?? undefined, gatePin,
+        drop, ohms, gateVolts: vGrille, gatePin,
+      });
+      continue;
+    }
+    if (!on) {
+      out.push({
+        partId: part.id, npn, mos, on: false, baseAmps: 0, maxCollectorAmps: 0, drop, ohms, gatePin,
       });
       continue;
     }
@@ -2465,12 +2504,25 @@ function mosGateVolts(
   vcc: number,
   readPin: (name: string) => boolean,
   psuVolts?: (partId: string) => number | null
-): number | null {
-  // Les sorties de carte sont vues par leur NIVEAU du moment : c'est ce que
-  // readPin sait dire, et c'est ce dont le pont diviseur de grille dépend.
-  const drive = (pin: string): PinDrive => (readPin(pin) ? 'high' : 'low');
+): { volts: number; ohms: number } | null {
+  // La grille est prise en compte comme le ferait un VOLTMÈTRE posé dessus :
+  // seuls les rails et les alimentations sont des sources, les broches de carte
+  // restent en haute impédance.
+  //
+  // C'est délibéré. `readPin` est un simple booléen : il ne sait pas distinguer
+  // une ENTRÉE d'une SORTIE. En fabriquer un `drive` faisait déclarer chaque
+  // broche « sortie à l'état bas », y compris une entrée analogique posée sur la
+  // grille pour observer la tension — A0 sur le curseur du potentiomètre, le
+  // montage de Frank. Cette fausse sortie tirait le curseur à la masse : le pont
+  // diviseur s'effondrait et la grille lisait 16 mV au lieu de 1,25 V, alors que
+  // le voltmètre M5 du même schéma affichait la bonne valeur. L'écart entre les
+  // deux venait uniquement de ce `drive` fabriqué, que le voltmètre ne passe pas.
+  //
+  // Une sortie qui attaque VRAIMENT la grille reste prise en compte : elle passe
+  // par le verdict logique (`level(pins.b)`), qui sert de repli quand la tension
+  // n'est pas calculable — voir l'appelant.
   const { sources } = circuitSources(
-    diagram, vcc, g.nets, g.vccNets, g.gndNets, drive, psuVolts
+    diagram, vcc, g.nets, g.vccNets, g.gndNets, undefined, psuVolts
   );
   if (sources.length === 0) return null;
   const sourceNets = new Set(sources.map((x) => x.net));
@@ -2478,8 +2530,17 @@ function mosGateVolts(
   const src = theveninNode(g.nets.netOf({ partId: part.id, pin: pins.e }), sources, sourceNets, g.adj);
   if (!gate || !src) return null;
   // Canal N : Vgs positif ouvre. Canal P : c'est l'inverse, on rend la valeur
-  // dans le sens qui ouvre pour que l'appelant compare toujours à |Vgs| ≥ seuil.
-  return npn ? gate.volts - src.volts : src.volts - gate.volts;
+  // dans le sens qui ouvre pour que l'appelant compare toujours Vgs au seuil.
+  //
+  // La résistance de Thévenin DE LA GRILLE est rendue avec la tension : elle dit
+  // à l'appelant QUI tient la grille. Nulle, celle-ci est collée à un rail (ou
+  // rien de résistif ne la tient, et c'est alors une broche de carte qui décide).
+  // Non nulle, elle est tenue par un réseau de résistances — pont diviseur ou
+  // potentiomètre — et la tension calculée est la seule chose qui fasse foi.
+  return {
+    volts: npn ? gate.volts - src.volts : src.volts - gate.volts,
+    ohms: gate.ohms,
+  };
 }
 
 /**

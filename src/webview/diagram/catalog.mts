@@ -609,6 +609,16 @@ const PCA9685_PAD_PROPS: readonly PropDef[] = [
 const REVERSE_PROP = (attr: string, label: string): PropDef => ({ attr, label, kind: 'checkbox' });
 
 /**
+ * Étiquette libre d'un appareil de mesure. Sur un banc, on colle un bout
+ * d'adhésif sur le multimètre pour dire CE QU'IL MESURE (« Vce », « courant
+ * moteur ») : l'id `M2` ne le dit pas, et le nom « Multimètre » encore moins.
+ * Vide par défaut ; dès qu'elle est remplie elle sort dans le bandeau du
+ * composant, indépendamment des cases « noms »/« id » du menu Noms, et reste
+ * lisible PENDANT la simulation — c'est là qu'on lit les mesures.
+ */
+const METER_TAG_PROP: PropDef = { attr: 'etiquette', label: 'Label', kind: 'text', rows: 1 };
+
+/**
  * Calage du palonnier, un réglage par servo. Le bras se remonte sur des
  * cannelures : il tombe rarement pile où on voudrait, et sur un châssis les huit
  * servos ne sont pas calés pareil. Ce décalage dit quel angle la pièce DESSINE
@@ -1149,12 +1159,13 @@ export const CATALOG: readonly PartDef[] = [
   // par sim.mts à chaque frame.
   {
     type: 'multimetre', label: 'Multimeter', tag: 'kablix-multimetre', kind: 'meter',
-    simControl: true, attrs: { mode: 'voltage' },
+    simControl: true, attrs: { mode: 'voltage', etiquette: '' },
     props: [
       {
         attr: 'mode', label: 'Measurement', kind: 'select', options: ['voltage', 'current'],
         optionLabels: { voltage: 'DC voltage', current: 'DC current' },
       },
+      METER_TAG_PROP,
     ],
   },
   // Oscilloscope de table (dessin de Frank) : deux prises banane + et GND, et
@@ -1169,7 +1180,7 @@ export const CATALOG: readonly PartDef[] = [
   // par sim.mts à chaque image.
   {
     type: 'oscillo', label: 'Oscilloscope', tag: 'kablix-oscillo', kind: 'scope',
-    simControl: true, attrs: { voltsdiv: '1', sdiv: '1', trigger: '', triggeredge: 'rising' },
+    simControl: true, attrs: { voltsdiv: '1', sdiv: '1', trigger: '', triggeredge: 'rising', etiquette: '' },
     props: [
       { attr: 'voltsdiv', label: 'Volts/div', kind: 'select', options: ['0.1', '0.5', '1', '2', '5'] },
       { attr: 'sdiv', label: 'Seconds/div', kind: 'number', min: 0.000001, max: 10000, step: 0.001 },
@@ -1180,6 +1191,7 @@ export const CATALOG: readonly PartDef[] = [
         attr: 'triggeredge', label: 'Trigger edge', kind: 'select', options: ['rising', 'falling'],
         optionLabels: { rising: 'Rising edge', falling: 'Falling edge' },
       },
+      METER_TAG_PROP,
     ],
   },
   // Patte de robot articulée : le fémur et le tibia DESSINÉS par Frank

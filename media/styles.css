@@ -1881,8 +1881,46 @@ body.vscode-light .inspector__ref--nouveau {
    que lorsque les deux sont affichés. */
 .part__id,
 .part__sep,
-.part__name {
+.part__name,
+.part__tag {
   display: none;
+}
+
+/* Étiquette libre d'un appareil de mesure (« Vce », « courant moteur ») : elle
+   ne suit AUCUNE case du menu Noms — remplie, elle sort toujours, seule si rien
+   d'autre n'est demandé. Écartée du nom/id qui la précèdent, et en gras clair
+   pour se distinguer d'eux. */
+.part--tagged .part__tag {
+  display: inline;
+  font-weight: 600;
+}
+
+/* Un id ou un nom devant l'étiquette : on l'écarte. Sans eux (bandeau ouvert par
+   la seule étiquette) elle reste collée au bord gauche du bandeau. */
+.canvas--show-ids .part--tagged .part__tag,
+.canvas--show-labels .part--tagged .part__tag,
+.canvas--labels-sel .part--tagged.part--selected .part__tag {
+  margin-left: 6px;
+}
+
+/* Le bandeau s'ouvre pour l'étiquette seule, même sans case cochée… */
+.part--tagged .part__head {
+  display: flex;
+}
+
+/* …et il RESTE pendant la simulation : c'est le moment où on lit les mesures,
+   et donc où savoir quel appareil mesure quoi compte le plus. Seule l'étiquette
+   y survit — id et nom retombent (règles ci-dessus, qui exigent une classe de
+   canvas absente en simulation… sauf `canvas--show-ids`, qu'on annule ici). */
+.canvas--locked .part--tagged .part__head {
+  display: flex !important;
+  cursor: default;
+}
+
+.canvas--locked .part__id,
+.canvas--locked .part__sep,
+.canvas--locked .part__name {
+  display: none !important;
 }
 
 .canvas--show-ids .part__id {

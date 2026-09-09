@@ -2778,6 +2778,17 @@ void loop() {
       } },
       { id: 'R3', type: 'resistor', x: 640, y: 1080, attrs: { value: '100' } },
       { id: 'M8', type: 'multimetre', x: 960, y: 1160, attrs: { mode: 'voltage' } },
+      // 6. MOSFET commandé par le CURSEUR du potentiomètre (montage de Frank,
+      //    repris de son schéma retouché) : la grille est tenue par un réseau
+      //    résistif, pas par une broche. C'est la TENSION qui ouvre le canal —
+      //    la LED s'allume au-delà de Vgs(th) = 3,5 V, soit 70 % de course.
+      { id: 'T4', type: 'transistor', x: 1150, y: 660, attrs: {
+        pkg: 'to220', symbol: 'nmos', schema: 'nmos-d',
+        text: 'IRF530', named: '1', ref: 'IRF530',
+        s: '3', g: '1', d: '2', gain: '0', rdson: '0.16', vgsth: '3.5', vcemax: '100', icmax: '14',
+      } },
+      { id: 'R4', type: 'resistor', x: 1070, y: 750, attrs: { value: '220' } },
+      { id: 'L1', type: 'led', x: 1040, y: 720, attrs: { color: 'red' }, flipH: true },
       // Vce(sat) du bipolaire, à comparer au Vds(on) du MOSFET juste au-dessus.
       { id: 'M6', type: 'multimetre', x: 120, y: 930, attrs: { mode: 'voltage' } },
       // Le rail 3,3 V de la carte : un régulateur tient sa tension.
@@ -2829,6 +2840,14 @@ void loop() {
       w('T3', 'S', 'Alim1', 'GND', 'black'),
       w('M8', '+', 'T3', 'D', 'blue'),
       w('M8', 'GND', 'T3', 'S', 'black'),
+      // 6. MOSFET commandé en tension par le curseur : LED + 220 Ω sur le drain,
+      //    source à la masse, grille sur le curseur. Aucune broche ne pilote ce
+      //    transistor — c'est le pont diviseur qui décide, et lui seul.
+      w('T4', 'G', 'Pot1', 'SIG', 'green'),
+      w('L1', 'A', 'Alim1', 'V+', 'red'),
+      w('L1', 'C', 'R4', '1', 'orange'),
+      w('R4', '2', 'T4', 'D', 'blue'),
+      w('T4', 'S', 'Alim1', 'GND', 'black'),
       // Vce(sat) du bipolaire du relais.
       w('M6', '+', 'T2', 'C', 'blue'),
       w('M6', 'GND', 'T2', 'E', 'black'),

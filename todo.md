@@ -1,9 +1,9 @@
 # À faire
 1. ✅ Dans mesure-pico, j'alimente le moteur Act1 (5v) en 5v via l'ampèremetre. Il affiche l'erreur de tension trop faible (attention il  ne l'affiche qu'aprés que j'ai cliqué sur l'alim sans rien changer). Tu vérifie puis tu ajuste la règle 15% de Unominale il ne tourne plus et l'erreur est affichée (sauf PWM qui pourrait faire tourner le moteur si on augmentait le rapport cyclique à ce moment le moteur s'arrête mais pas d'erreur) et 150% de Unominale pour qu'il grille.
 1. ✅ Deux points notés, non traités car hors item : à 0 % M2 rend null au lieu de 0 A (préexistant, vérifié en remisant le correctif), et le hachage d'un PNP par le haut n'est pas couvert (aucun montage du dépôt ne l'utilise). Fais les 2 et ajoute un montage de test pour le pnp.
-1. Ajouter une étiquette libre sur les appareils de mesure. Vide par défaut. Si elle est remplie elle s'affiche automatiquement dans la même zone que l'id ou le nom des composants.
-1. L'emplacement de l'étiquette du ventilateur et de la carte arduino doivent être au plus proche du composant (à toucher le cadre de sélection  comme les autres). Pour le ventilateur le cadre de sélection  est mal ajusté.
-1. dans mesure-uno, j'ai rajouté un montage T4, L1, R4 qui doit allumer la led quand Vgs> vgsth mais il n emarche pas.
+1. ✅ Ajouter une étiquette libre sur les appareils de mesure. Vide par défaut. Si elle est remplie elle s'affiche automatiquement dans la même zone que l'id ou le nom des composants.
+1. ✅ L'emplacement de l'étiquette du ventilateur et de la carte arduino doivent être au plus proche du composant (à toucher le cadre de sélection  comme les autres). Pour le ventilateur le cadre de sélection  est mal ajusté.
+1. ✅ dans mesure-uno, j'ai rajouté un montage T4, L1, R4 qui doit allumer la led quand Vgs> vgsth mais il n emarche pas.
 
 1. Mesure-pico :
     - ✅ M3 aux bornes du ventilateur / de l'alimentation Alim1 : 5 V (lot .56)
@@ -15,6 +15,28 @@
 2. ✅ Nouvelle couleur du multimètre appliquée (lot .57)
 
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.59 — L'encre commande le cadre, le curseur commande la grille
+
+1. ✅ **Étiquette libre sur les appareils de mesure** (item 3). Nouvelle propriété `etiquette` sur le multimètre et l'oscilloscope, vide par défaut — sur un banc, on colle un bout d'adhésif sur l'appareil pour dire CE QU'IL MESURE (« Vce », « courant moteur ») : l'id `M2` ne le dit pas, et le nom « Multimètre » encore moins.
+2. ✅ **Elle sort TOUTE SEULE**, sans qu'aucune case du menu Noms soit cochée, et elle **survit à la simulation** — id et nom, eux, y retombent. C'est justement pendant la simulation qu'on lit les mesures, donc qu'il faut savoir quel appareil mesure quoi. Vide, tout redevient exactement comme avant : le bandeau reste fermé.
+3. ✅ **Elle ne va PAS au dessin, elle va au bandeau** ([editor.mts](src/webview/diagram/editor.mts)) : `etiquette` est écartée des attributs posés sur l'élément Lit, et mise à jour sur place (`applyPartTag`) sans re-rendu. Elle est enregistrée dans le schéma et revient au rechargement. **26 contrôles** neufs (`verify:etiquette`).
+4. ✅ **`getBBox` mesure des TRACÉS, pas de l'encre** — c'est toute la cause de l'item 4. Les pales du ventilateur sont remplies d'un dégradé radial qui s'éteint sur son pourtour : elles montaient à y=10,8 alors que rien n'y est peint avant y=18,25. Le cadre de sélection dépassait donc le boîtier de **7,5 unités** en haut, ce que Frank voyait comme « mal ajusté ».
+5. ✅ **Mesure sur l'ALPHA d'un rendu hors écran** : le SVG est rendu une fois dans un canevas invisible et son alpha balayé, en cache et de façon asynchrone (`measureInkBox`). Le résultat ne peut que **rogner** `getBBox` — de l'encre hors des tracés, ça n'existe pas — donc un ratage laisse simplement le comportement d'avant. Le premier passage se contente de `getBBox`, le recalage suit.
+6. ✅ **Le bandeau de nom flottait au-dessus du vide** (l'autre moitié de l'item 4) : il se calait sur le viewBox du corps, pas sur le dessin — 10,8 px de vide pour le ventilateur, 9,0 px pour la carte Uno. Il partage désormais la **même mesure** que le cadre, donc il le touche, en droit comme en tourné (les quatre coins de la boîte du dessin sont tournés autour du centre du corps, pas la boîte du corps entier).
+7. ✅ **Un piège trouvé en jouant les contrôles** : le cache d'encre était indexé **par type**. Or un même type change de dessin — un `transistor` passe du TO-92 au TO-220 quand on change sa référence. L'encre du petit boîtier était alors servie au grand et le cadre restait à la taille du petit (`verify:transistor` : 33 px de haut au lieu de 60-90). La clé porte désormais sur la **géométrie du SVG**, pas sur le type.
+8. ✅ **Banc `verify:cadre`** : bornes attendues relevées au pixel pour cinq composants (scan alpha ∩ getBBox), plus le contact bandeau/cadre vérifié sur chacun. L'attendu n'est **pas l'encre seule** — un contour ou une ombre peut déborder du tracé (multimètre : encre large de 253,75 pour un tracé de 251,41, c'est le tracé qui gagne) : c'est l'intersection des deux.
+9. ✅ **Le montage T4/R4/L1 de Frank n'allumait jamais sa LED** (item 5). La grille de l'IRF530 est sur le **curseur d'un potentiomètre**, pas sur une broche. Ce net n'est ni masse, ni VCC, ni sortie de porte : `netLevel` y rend `undefined`, le verdict logique déclarait donc le canal fermé, et on sortait **avant même de calculer le Vgs** — quelle que soit la position du curseur.
+10. ✅ **Le critère est maintenant QUI tient la grille** ([model.mts](src/webview/diagram/model.mts)) : `mosGateVolts` rend sa résistance de Thévenin avec la tension. Non nulle, un réseau résistif tient la grille (pont diviseur, curseur) et la **TENSION** fait foi — même si une broche traîne sur ce net, car une entrée analogique posée là pour observer le curseur **n'est pas une commande**. Nulle, c'est la broche qui décide : verdict logique, comme avant.
+11. ✅ **Ce que fait la LED, après** : éteinte de 0 à 70 % de course, allumée au-delà — le seuil `Vgs(th)` = 3,5 V tombe exactement à 70 % d'un pont de 5 V. Le voltmètre posé sur le curseur et le `Vgs` calculé concordent au millivolt à chaque cran (0 / 1,25 / 2,5 / 5 V).
+12. ✅ **Une régression évitée de justesse, et elle est instructive** : écarter les broches des sources de `mosGateVolts` (nécessaire pour le potentiomètre) faisait perdre la tension de grille du cas **broche**, et un MOSFET à Vgs(th) = 6 V se mettait à conduire sur une sortie 5 V. Le contrôle qui l'atteste existait depuis le lot .54 et il est tombé. La tension est donc **reconstruite** du niveau de la broche quand c'est elle qui commande : le seuil s'applique dans les deux régimes.
+13. ✅ **Montage transporté dans la spec** (`_spec.mjs`, banc `mesure-uno`) avec les emplacements exacts du schéma de Frank : sans ça, la prochaine régénération l'effaçait. **Treize contrôles** neufs dans `verify:transistor` (185 au total).
+14. ℹ️ **Deux composants du fichier de Frank NON repris, à lui de trancher** : `Alim2` (une alimentation réglée à 0 V, branchée sur la grille de T3 — un essai en cours) et `M9`, le multimètre en trop déjà signalé au lot .58. La régénération des deux bancs les a donc retirés, et avec eux les 815 ko de `customParts` qu'une session F5 y avait déposés (le fichier retombe de 94 ko à 1,7 ko).
+15. ✅ **Huit scripts de reproduction rangés**, pas supprimés : `scripts/_tmp-*.mjs` → `A Examiner/scripts/`.
+16. ✅ **Aucune régression** : suite complète **106/106 bancs joués**, typecheck sans erreur, construction faite. `verify:transistor` passe à **185 contrôles**, `verify:cadre` et `verify:etiquette` sont neufs.
+17. ℹ️ **`verify:i18n` reste le seul échec, préexistant et inchangé** : les six libellés `Vce(sat)` / `Vgs(th)` attendent la publication, comme le veut la règle des traductions. Le libellé « Label » de l'étiquette est, lui, dans le dictionnaire FR de la webview — il est tenu au fil de l'eau.
+
 ---
 
 # >>>>  v2026.9.2.58 — Un moteur calé le dit, un PNP se juge par le bas

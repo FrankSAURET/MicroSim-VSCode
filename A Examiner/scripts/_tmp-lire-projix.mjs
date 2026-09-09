@@ -1,11 +1,12 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-const f = process.argv[2];
-// unzip via PowerShell Expand-Archive : plus simple, on passe par yauzl si dispo
-const AdmZip = await import('adm-zip').catch(() => null);
-if (AdmZip) {
-  const zip = new AdmZip.default(f);
-  for (const e of zip.getEntries()) console.log('ENTRY', e.entryName, e.header.size);
-  const j = zip.getEntry('kablix.json');
-  if (j) writeFileSync('scripts/_tmp-projix.json', j.getData().toString('utf8'));
-} else console.log('pas adm-zip');
+// Extrait diagram.json d'un .projix pour l'inspecter.
+import { readFileSync } from 'node:fs';
+import JSZip from 'jszip';
+const zip = await JSZip.loadAsync(readFileSync(process.argv[2]));
+const d = JSON.parse(await zip.file('diagram.json').async('string'));
+const ids = process.argv.slice(3);
+if (ids.length === 0) { console.log('parts:', d.parts.map((p) => `${p.id}:${p.type}`).join(' ')); process.exit(0); }
+console.log('--- wires ---', (d.wires ?? d.connections ?? []).length);
+for (const w of (d.wires ?? d.connections ?? [])) {
+	const s = JSON.stringify(w);
+	if (ids.some((id) => s.includes('"' + id + '"'))) console.log(s.slice(0, 300));
+}

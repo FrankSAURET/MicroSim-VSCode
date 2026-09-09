@@ -2344,6 +2344,18 @@ export class Editor {
     return color;
   }
 
+  /**
+   * Pose (ou retire) l'étiquette libre dans le bandeau d'un composant. Le texte
+   * vit dans le span `.part__tag` ; la classe `part--tagged` du conteneur dit au
+   * CSS de sortir le bandeau même quand aucune case du menu Noms n'est cochée,
+   * et de le garder pendant la simulation. Vide = tout redevient comme avant.
+   */
+  private applyPartTag(container: HTMLElement, texte: string): void {
+    const tag = container.querySelector('.part__tag');
+    if (tag) tag.textContent = texte;
+    container.classList.toggle('part--tagged', texte.trim() !== '');
+  }
+
   // --- Rendu d'un composant --------------------------------------------------
   private renderPart(part: Part): void {
     const def = partDef(part.type);
@@ -2386,8 +2398,16 @@ export class Editor {
     name.className = 'part__name';
     name.textContent = t(def.label);
     head.appendChild(name);
+    // Étiquette libre (appareils de mesure) : ce que l'appareil MESURE, écrit
+    // par l'utilisateur. Elle ne dépend d'aucune case du menu Noms — remplie,
+    // elle sort ; vide, le bandeau se comporte comme avant (classe
+    // `part--tagged` posée par applyPartTag).
+    const tag = document.createElement('span');
+    tag.className = 'part__tag';
+    head.appendChild(tag);
     // Plus de croix d'effacement ici : suppression via l'inspecteur (🗑) ou Suppr.
     container.appendChild(head);
+    this.applyPartTag(container, part.attrs?.etiquette ?? '');
 
     const body = document.createElement('div');
     body.className = 'part__body';
@@ -2396,12 +2416,19 @@ export class Editor {
       (el as unknown as { definition: typeof def }).definition = def;
     }
     for (const [k, v] of Object.entries(part.attrs ?? def.attrs ?? {})) {
-      if (v !== '') el.setAttribute(k, v);
+      // `etiquette` n'est pas un réglage du DESSIN : elle s'affiche dans le
+      // bandeau du composant, pas dans l'élément. Ne pas la lui poser.
+      if (v !== '' && k !== 'etiquette') el.setAttribute(k, v);
     }
     body.appendChild(el);
     container.appendChild(body);
     this.world.appendChild(container);
     this.applyRotation(part, body);
+    // Le dessin n'existe pas encore au premier passage (Lit n'a pas rendu) :
+    // `measureDrawingBox` retombe alors sur le corps entier et le bandeau garde
+    // l'ancien vide. On le recale dès que l'élément a fini de se rendre.
+    void (el as { updateComplete?: Promise<unknown> }).updateComplete
+      ?.then(() => { if (this.rendered.get(part.id)?.container === container) this.applyRotation(part, body); });
     this.makeDrawingHitPainted(el);
 
     // Déplacement : par tout le corps (clic gauche ou droit), sauf pour les
@@ -2746,7 +2773,7 @@ export class Editor {
     const deg = ((part.rotation ?? 0) % 360 + 360) % 360;
     const w = body.offsetWidth;
     const h = body.offsetHeight;
-    if (!deg || !w || !h) {
+    if (!w || !h) {
       head.style.bottom = '';
       head.style.top = '';
       head.style.left = '';
@@ -2754,15 +2781,45 @@ export class Editor {
       head.style.transform = '';
       return;
     }
+    // Le bandeau se cale sur le DESSIN, pas sur le viewBox du SVG. Sans cela il
+    // flottait au-dessus du vide : 10,8 px pour le ventilateur, 9,0 px pour la
+    // carte Uno (mesuré) — Frank : « au plus proche du composant, à toucher le
+    // cadre de sélection comme les autres ». Il retombe sur le corps entier
+    // quand rien n'est mesurable, c'est-à-dire sur le comportement d'avant.
+    const d = this.measureDrawingBox(part.id) ?? { l: 0, t: 0, w, h };
+    if (!deg) {
+      // Sans rotation : le bandeau s'assoit sur le haut du dessin et démarre à
+      // son bord gauche, sur sa largeur (le CSS l'élargit au besoin au texte).
+      head.style.bottom = 'auto';
+      head.style.top = `${d.t}px`;
+      head.style.left = `${d.l}px`;
+      head.style.minWidth = `${d.w}px`;
+      head.style.transform = 'translateY(-100%)';
+      return;
+    }
+    // Tourné : la rotation se fait autour du CENTRE DU CORPS (transform-origin).
+    // On tourne les quatre coins de la boîte du dessin autour de ce centre et on
+    // reprend l'enveloppe du résultat — la boîte englobante du corps entier
+    // laisserait le même vide qu'avant, en biais.
     const rad = (deg * Math.PI) / 180;
-    const c = Math.abs(Math.cos(rad));
-    const s = Math.abs(Math.sin(rad));
-    const bw = w * c + h * s; // largeur de la boîte englobante tournée
-    const bh = w * s + h * c; // hauteur de la boîte englobante tournée
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const cx = w / 2;
+    const cy = h / 2;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const [px, py] of [[d.l, d.t], [d.l + d.w, d.t], [d.l, d.t + d.h], [d.l + d.w, d.t + d.h]]) {
+      const dx = px - cx;
+      const dy = py - cy;
+      xs.push(cx + dx * cos - dy * sin);
+      ys.push(cy + dx * sin + dy * cos);
+    }
+    const bl = Math.min(...xs);
+    const bt = Math.min(...ys);
     head.style.bottom = 'auto';
-    head.style.top = `${(h - bh) / 2}px`;
-    head.style.left = `${(w - bw) / 2}px`;
-    head.style.minWidth = `${bw}px`;
+    head.style.top = `${bt}px`;
+    head.style.left = `${bl}px`;
+    head.style.minWidth = `${Math.max(...xs) - bl}px`;
     head.style.transform = 'translateY(-100%)'; // hisse le bandeau au-dessus
   }
 
@@ -4899,6 +4956,137 @@ export class Editor {
     const r = this.rendered.get(partId);
     const body = r?.container.querySelector('.part__body') as HTMLElement | null;
     if (!r || !body) return;
+    const box = this.measureDrawingBox(partId);
+    let sel = body.querySelector('.part__selbox') as HTMLElement | null;
+    if (!box) {
+      sel?.remove();
+      return;
+    }
+    if (!sel) {
+      sel = document.createElement('div');
+      sel.className = 'part__selbox';
+      body.appendChild(sel);
+    }
+    sel.style.left = `${box.l}px`;
+    sel.style.top = `${box.t}px`;
+    sel.style.width = `${box.w}px`;
+    sel.style.height = `${box.h}px`;
+  }
+
+  /**
+   * Rogne la boîte d'un dessin à ses pixels VRAIMENT peints, en unités du viewBox.
+   *
+   * `getBBox` mesure des tracés, pas de l'encre : un `path` rempli d'un dégradé
+   * radial qui s'éteint sur son pourtour occupe la boîte sans rien y peindre. Les
+   * pales du ventilateur (`path19`/`path15`) font exactement ça et poussaient son
+   * cadre 7,5 unités trop haut (getBBox y=10,80 contre y=18,25 peint), ce que
+   * Frank voyait comme « le cadre de sélection est mal ajusté ».
+   *
+   * Le SVG est donc rendu une fois hors écran et l'alpha balayé. C'est coûteux :
+   * une seule fois PAR TYPE, en cache, et de façon asynchrone — l'appelant utilise
+   * `getBBox` en attendant, puis recale. Le résultat ne peut que RÉTRÉCIR la boîte
+   * (de l'encre hors des tracés, ça n'existe pas), donc un ratage laisse
+   * simplement le comportement d'avant.
+   */
+  private inkBox = new Map<string, { x: number; y: number; w: number; h: number } | null>();
+  private inkPending = new Set<string>();
+
+  /**
+   * Clé de cache d'un dessin : le type ne suffit pas, un `transistor` change de
+   * boîtier avec sa référence. On y ajoute le viewBox et la LONGUEUR du SVG
+   * sérialisé — assez pour distinguer deux boîtiers, assez court pour ne pas
+   * resérialiser une planche entière à chaque mesure (le contenu, lui, n'entre
+   * pas dans la clé : deux dessins de mêmes dimensions et de même taille de
+   * source ont la même encre à la précision qui nous intéresse).
+   */
+  private inkKey(type: string, svg: SVGSVGElement): string {
+    const vb = svg.viewBox?.baseVal;
+    const box = vb ? `${vb.x},${vb.y},${vb.width},${vb.height}` : '';
+    return `${type}|${box}|${svg.width?.baseVal?.value ?? 0}x${svg.height?.baseVal?.value ?? 0}|${svg.innerHTML.length}`;
+  }
+
+  private measureInkBox(type: string, svg: SVGSVGElement, apres: () => void): void {
+    if (this.inkBox.has(type) || this.inkPending.has(type)) return;
+    this.inkPending.add(type);
+    const vb = svg.viewBox?.baseVal;
+    const vw = vb && vb.width ? vb.width : svg.width?.baseVal?.value || 0;
+    const vh = vb && vb.height ? vb.height : svg.height?.baseVal?.value || 0;
+    const fini = (b: { x: number; y: number; w: number; h: number } | null): void => {
+      this.inkPending.delete(type);
+      this.inkBox.set(type, b);
+      apres();
+    };
+    if (!vw || !vh) {
+      fini(null);
+      return;
+    }
+    // 3 px de rendu par unité : assez fin pour que l'arrondi reste sous le pixel
+    // écran, assez grossier pour qu'une planche A3 ne coûte pas des dizaines de Mo.
+    const ECH = 3;
+    const cw = Math.max(1, Math.min(2048, Math.round(vw * ECH)));
+    const ch = Math.max(1, Math.min(2048, Math.round(vh * ECH)));
+    let src = '';
+    try {
+      const clone = svg.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('width', String(cw));
+      clone.setAttribute('height', String(ch));
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))))}`;
+    } catch {
+      fini(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = (): void => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = cw;
+        cv.height = ch;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        if (!cx) {
+          fini(null);
+          return;
+        }
+        cx.drawImage(img, 0, 0, cw, ch);
+        const px = cx.getImageData(0, 0, cw, ch).data;
+        let l = cw;
+        let t = ch;
+        let rr = -1;
+        let bb = -1;
+        // Seuil bas : on cherche ce qui se VOIT, pas le halo d'antialiasing d'un
+        // dégradé qui s'éteint (c'est justement lui qui gonflait la boîte).
+        for (let y = 0; y < ch; y++) {
+          for (let x = 0; x < cw; x++) {
+            if (px[(y * cw + x) * 4 + 3] > 12) {
+              if (x < l) l = x;
+              if (x > rr) rr = x;
+              if (y < t) t = y;
+              if (y > bb) bb = y;
+            }
+          }
+        }
+        const sx = vw / cw;
+        const sy = vh / ch;
+        fini(rr < 0 ? null : { x: l * sx, y: t * sy, w: (rr - l + 1) * sx, h: (bb - t + 1) * sy });
+      } catch {
+        // Canvas « sali » (image externe) ou mémoire refusée : repli silencieux.
+        fini(null);
+      }
+    };
+    img.onerror = (): void => fini(null);
+    img.src = src;
+  }
+
+  /**
+   * Boîte RÉELLEMENT dessinée d'un composant, en pixels du corps (`.part__body`),
+   * ou null si rien n'est mesurable. C'est la même mesure pour le cadre de
+   * sélection et pour le bandeau de nom : les deux doivent coller au DESSIN, pas
+   * au viewBox du SVG — le ventilateur laisse 10,8 px de vide au-dessus du sien,
+   * la carte Uno 9,0 px, et le bandeau y flottait d'autant (Frank, item .59).
+   */
+  private measureDrawingBox(partId: string): { l: number; t: number; w: number; h: number } | null {
+    const r = this.rendered.get(partId);
+    if (!r) return null;
     let box: { l: number; t: number; w: number; h: number } | null = null;
     try {
       // Le PLUS GRAND svg de premier niveau, pas le premier venu : le buzzer place
@@ -4912,10 +5100,41 @@ export class Editor {
         const bestArea = best ? (best.width?.baseVal?.value || 0) * (best.height?.baseVal?.value || 0) : -1;
         return area > bestArea ? s : best;
       }, null);
-      const bb = svg?.getBBox();
+      let bb = svg?.getBBox();
       const vw = svg?.width?.baseVal?.value || 0;
       const vh = svg?.height?.baseVal?.value || 0;
       const vb = svg?.viewBox?.baseVal;
+      if (svg && bb) {
+        // Affinage à l'encre réellement posée (dégradés qui s'éteignent). Mesure
+        // asynchrone et mise en cache : le premier passage se contente de
+        // `getBBox`, le recalage suit dès que le cache est rempli.
+        //
+        // La clé n'est PAS le type : un même type change de dessin (un
+        // `transistor` passe du TO-92 au TO-220 quand on change sa référence,
+        // une carte change de taille). Indexer par type servait alors l'encre de
+        // l'ancien boîtier au nouveau, et le cadre restait à la taille du petit.
+        // On indexe donc sur la GÉOMÉTRIE du SVG lui-même : deux dessins qui
+        // partagent viewBox, taille et tracés partagent aussi leur encre.
+        const type = this.inkKey(r.part.type, svg);
+        if (!this.inkBox.has(type)) {
+          this.measureInkBox(type, svg, () => {
+            if (this.rendered.get(partId) === r) {
+              this.fitSelectionBox(partId);
+              const body2 = r.container.querySelector('.part__body') as HTMLDivElement | null;
+              if (body2) this.applyRotation(r.part, body2);
+            }
+          });
+        }
+        const ink = this.inkBox.get(type);
+        // Intersection seulement : l'encre ne peut que rétrécir la boîte des tracés.
+        if (ink && ink.w > 0 && ink.h > 0) {
+          const x1 = Math.max(bb.x, ink.x);
+          const y1 = Math.max(bb.y, ink.y);
+          const x2 = Math.min(bb.x + bb.width, ink.x + ink.w);
+          const y2 = Math.min(bb.y + bb.height, ink.y + ink.h);
+          if (x2 - x1 > 0 && y2 - y1 > 0) bb = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 } as DOMRect;
+        }
+      }
       if (bb && vw && vh && bb.width > 0 && bb.height > 0) {
         // Du repère du viewBox vers les pixels du corps.
         const sx = vb && vb.width ? vw / vb.width : 1;
@@ -4934,20 +5153,7 @@ export class Editor {
     } catch {
       // SVG non mesurable (largeur en %, viewport non résolu) : repli.
     }
-    let sel = body.querySelector('.part__selbox') as HTMLElement | null;
-    if (!box) {
-      sel?.remove();
-      return;
-    }
-    if (!sel) {
-      sel = document.createElement('div');
-      sel.className = 'part__selbox';
-      body.appendChild(sel);
-    }
-    sel.style.left = `${box.l}px`;
-    sel.style.top = `${box.t}px`;
-    sel.style.width = `${box.w}px`;
-    sel.style.height = `${box.h}px`;
+    return box;
   }
 
   /**
@@ -5628,11 +5834,16 @@ export class Editor {
         void (again?.el as { updateComplete?: Promise<unknown> })?.updateComplete
           ?.then(() => this.fitSelectionBox(partId));
       }
+    } else if (attr === 'etiquette') {
+      // Bandeau, pas dessin : rien à poser sur l'élément (cf. renderPart).
     } else if (value === '') {
       r.el.removeAttribute(attr);
     } else {
       r.el.setAttribute(attr, value);
     }
+    // Étiquette libre d'un appareil de mesure : elle ne va pas au dessin, elle va
+    // au BANDEAU du composant — mise à jour sur place, sans re-rendu.
+    if (attr === 'etiquette') this.applyPartTag(r.container, value);
     // La polarité du commun (cathode/anode) change le nom affiché de la broche
     // COM (« K »/« A ») : on rafraîchit les bulles d'aide des pastilles, et le
     // câblage interne s'il est affiché (les diodes cathode/anode sont dessinées

@@ -1,4 +1,4 @@
 board: arduino:avr:uno
-sketch: Arduino/pot-uno/pot-uno.ino
+sketch: Arduino/mesure-uno/mesure-uno.ino
 port: COM3
 output: .build

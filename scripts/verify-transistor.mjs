@@ -809,7 +809,7 @@ rows.push({
 //    doit dépasser Vgs(th), sinon le canal reste fermé.
 {
 	writeFileSync(join(CACHE, 'model.mjs'), `
-export { meterReadings, commandedBridges, setActiveBridges } from '../../src/webview/diagram/model.mjs';
+export { meterReadings, commandedBridges, setActiveBridges, transistorStates } from '../../src/webview/diagram/model.mjs';
 `);
 	const modelFile = join(CACHE, 'model.bundle.mjs');
 	await esbuild({
@@ -924,6 +924,86 @@ export { meterReadings, commandedBridges, setActiveBridges } from '../../src/web
 	rows.push({
 		name: 'MOSFET grille basse : toute l alimentation reste à ses bornes',
 		ok: proche(vMosBas, 5, 0.01), detail: `${vMosBas} V`,
+	});
+
+	// --- Grille tenue par un POTENTIOMÈTRE (lot .59, montage de Frank) --------
+	// Le montage T4/R4/L1 ajouté par Frank au banc mesure-uno : la grille d'un
+	// IRF530 est sur le CURSEUR d'un potentiomètre câblé entre 5 V et la masse,
+	// et une LED avec sa résistance pend au drain. La LED doit s'allumer quand
+	// le curseur passe Vgs(th) = 3,5 V, soit 70 % de course — elle ne s'allumait
+	// JAMAIS.
+	//
+	// La cause : un net tenu par un réseau résistif n'est ni masse, ni VCC, ni
+	// sortie de porte. `netLevel` y rend `undefined`, le verdict logique déclarait
+	// donc le canal fermé et on sortait avant même de calculer le Vgs. Le critère
+	// est maintenant QUI tient la grille : une résistance de Thévenin non nulle
+	// = un réseau résistif = c'est la TENSION qui tranche, pas la logique.
+	const IRF = {
+		pkg: 'to220', symbol: 'nmos', schema: 'nmos-d', named: '1', ref: 'IRF530',
+		text: 'IRF530', g: '1', d: '2', s: '3',
+		gain: '0', rdson: '0.16', vgsth: '3.5', vcemax: '100', icmax: '14',
+	};
+	// Le fil curseur → A0 est celui du vrai schéma : une ENTRÉE analogique posée
+	// sur le curseur pour l'observer. Elle ne doit pas être prise pour une
+	// commande — c'est précisément ce qui rendait le calcul faux.
+	const bancPot = (pct) => ({
+		parts: [
+			P('uno', 'uno'), P('psu', 'alim', { voltage: '5', maxcurrent: '2' }),
+			P('pot', 'pot', { min: '0', max: '100', value: String(pct), ohms: '10000' }),
+			P('t4', 'transistor', IRF), P('r4', 'resistor', { value: '220' }),
+			P('l1', 'led', { color: 'red' }), P('mv', 'multimetre', { mode: 'voltage' }),
+		],
+		wires: [
+			W('w1', pin('pot', 'VCC'), pin('psu', 'V+')),
+			W('w2', pin('pot', 'GND'), pin('psu', 'GND')),
+			W('w3', pin('pot', 'SIG'), pin('uno', 'A0')),
+			W('w4', pin('t4', 'G'), pin('pot', 'SIG')),
+			W('w5', pin('l1', 'A'), pin('psu', 'V+')),
+			W('w6', pin('l1', 'C'), pin('r4', '1')),
+			W('w7', pin('r4', '2'), pin('t4', 'D')),
+			W('w8', pin('t4', 'S'), pin('psu', 'GND')),
+			W('w9', pin('uno', 'GND.1'), pin('psu', 'GND')),
+			W('w10', pin('mv', '+'), pin('pot', 'SIG')),
+			W('w11', pin('mv', 'GND'), pin('psu', 'GND')),
+		],
+	});
+	// Aucune broche ne pilote ce transistor : toutes en l'air, comme en vrai.
+	const etatPot = (pct) => {
+		const d = bancPot(pct);
+		const readPin = () => false;
+		M.setActiveBridges(M.commandedBridges(d, readPin, 5));
+		const t = M.transistorStates(d, readPin, 5).find((x) => x.partId === 't4');
+		const v = M.meterReadings(d, 5, () => 'hiz').find((x) => x.partId === 'mv')?.value;
+		M.setActiveBridges([]);
+		return { on: t?.on, gate: t?.gateVolts, volt: v };
+	};
+	// 1. Le voltmètre du schéma lisait DÉJÀ juste : c'est le repère qui prouve que
+	//    le pont diviseur n'est pas en cause, seule la lecture de grille l'était.
+	for (const [pct, attendu] of [[0, 0], [25, 1.25], [50, 2.5], [100, 5]]) {
+		const e = etatPot(pct);
+		rows.push({
+			name: `MOSFET sur curseur : à ${pct} %, la grille voit ${attendu} V (et le voltmètre aussi)`,
+			ok: proche(e.gate, attendu, 0.02) && proche(e.volt, attendu, 0.02),
+			detail: `Vgs=${e.gate} V, voltmètre=${e.volt} V`,
+		});
+	}
+	// 2. Le canal suit le SEUIL, pas la logique : fermé sous 3,5 V, ouvert au-delà.
+	//    Sous le curseur à 50 % la grille est à 2,5 V — un « 1 » logique franc, et
+	//    pourtant le canal doit rester fermé.
+	for (const [pct, doitPasser] of [[0, false], [50, false], [60, false], [71, true], [90, true], [100, true]]) {
+		const e = etatPot(pct);
+		rows.push({
+			name: `MOSFET sur curseur : à ${pct} % le canal est ${doitPasser ? 'OUVERT' : 'fermé'}`,
+			ok: e.on === doitPasser, detail: `on=${e.on}, Vgs=${e.gate} V`,
+		});
+	}
+	// 3. Une BROCHE qui attaque vraiment la grille garde le verdict logique : le
+	//    correctif ne doit pas casser le montage d'à côté (T3 de mesure-uno, grille
+	//    en direct sur D7). C'est le rôle de la résistance de Thévenin nulle.
+	const parBroche = lire(banc({ ...MOS, rdson: '2.5', vgsth: '2.1' }, '100', true), true);
+	rows.push({
+		name: 'MOSFET commandé par une BROCHE : toujours jugé sur le niveau logique',
+		ok: proche(parBroche, 5 * 2.5 / (2.5 + 100 + 1), 0.01), detail: `${parBroche} V`,
 	});
 }
 

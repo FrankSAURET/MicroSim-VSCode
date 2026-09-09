@@ -551,6 +551,7 @@ const FR: Record<string, string> = {
   'Trigger edge': 'Front de déclenchement',
   'Rising edge': 'Front montant',
   'Falling edge': 'Front descendant',
+  'Label': 'Étiquette',
   'The ammeter is short-circuiting the supply':
     'L\'ampèremètre met l\'alimentation en court-circuit',
   'In current mode the multimeter is a plain wire: put it IN SERIES, inside the branch whose current you want. Straight across the supply it shorts it out.':
