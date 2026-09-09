@@ -1,30 +1,30 @@
 # À faire
-1. Tu ne t'occupe plus jamais de todo temp.md juste tu le commit à chaque fois que tu le trouve modifié.
+
 1. ✅ j'ai modifié mesure-pico (projix et py) tu pars de ma version. (lot .62)
 1. CTRL + clic retrace tous les fils (ou tous ce qui est sélectionné) càd, supprime tous les coudes puis retrace.
 1. ✅ Dans mesure-pico il y a encore des pb avec le moteur. il ne doit pas afficher l'erreur trop peu de tension s'il est commandé par un pwm et que pour le rapport cyclique max il peut tourner. (lot .62)
 1. ✅ Quand la tension arrive à 4,79 il peut tourner mais l'erreur "l'alimentation ne fournit pas le courant..." apparait sans raison. Les masses étant toutes reliées il n'y a pas de pb. (lot .62)
+
 1. ✅ si j'ouvre mesure-pico.projix je me trouve avec une feuille grise dans tous les projets projix (le fichier s'affiche puis tout s'efface) (lot .60)
-1. ✅ Ajuste la taille de la barre grise sous le texte d'info des composants à la taille de ce texte. (lot .60)
-1. ✅ Note le changement de mes fichiers mesure. Ils sont ceux à partir desquels on continue. (lot .60)
-1. ✅ Modifie le multimètre pour que s'il passe en amperemetre sont font soit un dégradé de vert (pas trop pétant quand même) (lot .60)
 
-1. ✅ Dans mesure-pico, j'alimente le moteur Act1 (5v) en 5v via l'ampèremetre. Il affiche l'erreur de tension trop faible (attention il  ne l'affiche qu'aprés que j'ai cliqué sur l'alim sans rien changer). Tu vérifie puis tu ajuste la règle 15% de Unominale il ne tourne plus et l'erreur est affichée (sauf PWM qui pourrait faire tourner le moteur si on augmentait le rapport cyclique à ce moment le moteur s'arrête mais pas d'erreur) et 150% de Unominale pour qu'il grille.
-1. ✅ Deux points notés, non traités car hors item : à 0 % M2 rend null au lieu de 0 A (préexistant, vérifié en remisant le correctif), et le hachage d'un PNP par le haut n'est pas couvert (aucun montage du dépôt ne l'utilise). Fais les 2 et ajoute un montage de test pour le pnp.
-1. ✅ Ajouter une étiquette libre sur les appareils de mesure. Vide par défaut. Si elle est remplie elle s'affiche automatiquement dans la même zone que l'id ou le nom des composants.
 1. ✅ L'emplacement de l'étiquette du ventilateur et de la carte arduino doivent être au plus proche du composant (à toucher le cadre de sélection  comme les autres). Pour le ventilateur le cadre de sélection  est mal ajusté.
-1. ✅ dans mesure-uno, j'ai rajouté un montage T4, L1, R4 qui doit allumer la led quand Vgs> vgsth mais il n emarche pas.
 
-1. Mesure-pico :
-    - ✅ M3 aux bornes du ventilateur / de l'alimentation Alim1 : 5 V (lot .56)
-    - ✅ Pot1 entre masse et 5 V : le curseur balaie 0 à 5 V, plus de négatif (lot .56)
-    - ✅ Test d'un transistor MOS ajouté sur les deux bancs (T3 BS170 + M8) (lot .56)
-    - ✅ M6 (Vce du PN2222A) : 0,2 V, positif et égal à la propriété Vce(sat) (lot .56)
-    - ✅ M7 aux bornes du 3,3 V du Pico : 3,3 V (lot .56)
-    - ✅ L'affichage de M1 est stable à 1 kHz (lot .57)
-2. ✅ Nouvelle couleur du multimètre appliquée (lot .57)
+
+
 
 ## ne pas faire pour l'instant
+- Ajouter résistance de puissance
+---
+
+# >>>>  v2026.9.2.63 — Un projet n'emporte pas la bibliothèque entière
+
+1. ✅ **Les 92 ko parasites avaient une cause, pas seulement un symptôme.** Au lot .62 la purge nettoyait les fichiers ; elle ne disait pas pourquoi ils regrossissaient à chaque enregistrement. `customPartsForProjix` ([panel.ts](src/panel.ts)) gravait **toute la bibliothèque installée** dans le `.projix`, que le schéma s'en serve ou non. Sept composants Grove inutilisés pesaient ainsi 90 ko sur un schéma qui en fait 4.
+2. ✅ **Un projet ne grave plus que les composants qu'il POSE.** `partTypesOf` relève les `type` réellement présents dans `diagram.parts`, et le filtre ne laisse passer que ceux-là. Un schéma illisible (`parts` absent ou non-tableau) rend `null` et **désactive le filtre** plutôt que de graver un fichier amputé : en cas de doute on garde tout, on ne perd rien.
+3. ✅ **Purge des deux fichiers de Frank**, sur son accord ([_purge-customparts.mjs](scripts/_purge-customparts.mjs)). `mesure-pico.projix` : 93 834 → **4 099 octets**, 24 composants et 44 fils intacts. `mesure-uno.projix` : 94 020 → **4 289 octets**, 26 composants et 46 fils intacts. Les originaux sont archivés sous `A Examiner/`, arborescence conservée — rien n'est effacé.
+4. ✅ **Le banc `verify:projixparts` testait le filtre avec une feuille VIDE.** Deux contrôles sont tombés dès le correctif posé, et c'était attendu : ils gravaient `parts: []`, donc plus aucun composant ne survivait au nouveau filtre. Ils vérifient la PROVENANCE (bibliothèque ou repli sur l'état global), pas le filtrage — il leur fallait un schéma qui se serve des composants testés.
+5. ✅ **`graveAvec` prend un paramètre `poses`** ([verify-projix-parts.mjs](scripts/verify-projix-parts.mjs)) qui fabrique les composants posés sur la feuille. Les deux contrôles de provenance retrouvent leur objet, et le banc couvre maintenant le filtre lui-même. **30 contrôles au vert.**
+6. ⏳ **`verify:i18n`** : toujours les six libellés du lot .61 (`vcesat`, `vgsth`) et les deux messages moteur du lot .62. Rien de neuf ici — la langue de base est écrite, le dictionnaire FR part avec le lot d'avant publication.
+
 ---
 
 # >>>>  v2026.9.2.62 — Le transistor qui bride n'est pas l'alimentation qui manque
@@ -38,7 +38,7 @@
 7. ✅ **La dispense se fonde maintenant sur le fait d'être haché**, d'où que vienne le hachage : transistor sur la maille, ou broche alimentant le moteur. Le vrai défaut, lui, se dit toujours — sans hachage, une alimentation trop faible reste `weak`, contrôlé au banc.
 8. ✅ **Deux sections ajoutées à `verify:motor`** (14 contrôles). Le bridage de quelques pour cent (le moteur tourne, aucune erreur, courant plafonné à Gain × Ib), le bridage sévère (`saturated`, cadre sur le transistor), la broche de carte affamée qui reste `starved` sans accuser de transistor, et le PWM par broche directe à 10 % puis 100 %. **106 des 107 bancs passent.**
 9. ✅ **Les fichiers mesure de Frank font foi** (item 2) : `mesure-pico.projix` (24 composants, 44 fils, bouton-poussoir BP1 ajouté sur GP2) et `mesure-pico.py` (le relais suit maintenant BP1 par interruption, sur les deux fronts, au lieu de coller en permanence) sont repris tels quels. Aucune retouche.
-10. ⏳ **Les 92 ko de `customParts` parasites sont revenus** dans les deux fichiers mesure — 7 composants Grove qu'une session F5 redépose et dont aucun composant du schéma ne se sert, exactement comme au lot .60. Le script de purge est écrit ([_purge-customparts.mjs](scripts/_purge-customparts.mjs), archivage dans `A Examiner/` avant réécriture) mais **son exécution a été refusée** : il réécrit des fichiers de Frank. À lancer sur son accord.
+10. ✅ **Les 92 ko de `customParts` parasites sont revenus** dans les deux fichiers mesure — 7 composants Grove qu'une session F5 redépose et dont aucun composant du schéma ne se sert, exactement comme au lot .60. Le script de purge est écrit ([_purge-customparts.mjs](scripts/_purge-customparts.mjs), archivage dans `A Examiner/` avant réécriture) et Frank l'a autorisé après coup : la purge a tourné, les deux fichiers sont revenus à leur taille utile (voir lot .63).
 11. ⏳ **`verify:i18n`** : les six libellés du lot .61 (`vcesat`, `vgsth`) plus les **deux messages** de ce lot. C'est la règle des traductions, pas un défaut — la langue de base (EN) est écrite au fil de l'eau, le dictionnaire FR part avec le lot d'avant publication.
 
 ---

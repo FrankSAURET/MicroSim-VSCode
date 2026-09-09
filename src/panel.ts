@@ -1925,35 +1925,62 @@ export class SimulatorPanel {
    */
   /**
    * Composants personnalisés à graver dans un .projix : ceux de la bibliothèque
-   * installée, sinon l'ancien état global. Le script de comportement est retiré
-   * — un .projix venu d'ailleurs ne doit pas transporter de code exécutable, et
-   * le composant, lui, s'installe par son .kompix.
+   * installée QUE LE SCHÉMA UTILISE VRAIMENT, sinon l'ancien état global. Le
+   * script de comportement est retiré — un .projix venu d'ailleurs ne doit pas
+   * transporter de code exécutable, et le composant, lui, s'installe par son
+   * .kompix.
    *
-   * `hasHelp` part avec lui : la fiche vit dans le paquet, pas dans le projet.
-   * Le garder allumerait, chez qui n'a pas installé le composant, un bouton
-   * d'aide qui n'ouvrirait rien.
+   * Le filtre sur les types employés n'est pas une économie de confort : sans
+   * lui, TOUTE la bibliothèque installée partait dans chaque projet. Les deux
+   * bancs de mesure pesaient 94 ko pour 4 ko de schéma, gonflés de sept
+   * composants Grove qu'aucune de leurs pièces n'utilise — et ils se
+   * regonflaient à chaque enregistrement, jusqu'à masquer les vraies
+   * modifications dans le suivi de version.
+   *
+   * `hasHelp` part avec le script : la fiche vit dans le paquet, pas dans le
+   * projet. Le garder allumerait, chez qui n'a pas installé le composant, un
+   * bouton d'aide qui n'ouvrirait rien.
    */
-  private customPartsForProjix(): unknown[] {
+  private customPartsForProjix(diagram: unknown): unknown[] {
     const parts =
       SimulatorPanel.library?.getComponents?.() ??
       this.context.globalState.get<unknown[]>(CUSTOM_PARTS_KEY, []);
-    return (parts as any[]).map((p) => {
-      if (!p?.behaviorScript && !p?.hasHelp) return p;
-      const { behaviorScript: _drop, hasHelp: _drop2, ...rest } = p;
-      return rest;
-    });
+    // Types réellement posés sur la feuille. Un schéma illisible (forme
+    // inattendue) ne filtre rien : mieux vaut un projet trop gros qu'un projet
+    // amputé des composants dont il a besoin pour se rouvrir ailleurs.
+    const poses = SimulatorPanel.partTypesOf(diagram);
+    return (parts as any[])
+      .filter((p) => poses === null || poses.has(p?.type))
+      .map((p) => {
+        if (!p?.behaviorScript && !p?.hasHelp) return p;
+        const { behaviorScript: _drop, hasHelp: _drop2, ...rest } = p;
+        return rest;
+      });
+  }
+
+  /** Types de composants posés sur un schéma, ou `null` s'il est illisible. */
+  private static partTypesOf(diagram: unknown): Set<string> | null {
+    const parts = (diagram as { parts?: unknown } | undefined)?.parts;
+    if (!Array.isArray(parts)) return null;
+    const types = new Set<string>();
+    for (const p of parts) {
+      const type = (p as { type?: unknown } | undefined)?.type;
+      if (typeof type === 'string') types.add(type);
+    }
+    return types;
   }
 
   /** Sérialise le projet .projix (manifeste + schéma + composants perso). */
   private async buildProjixBytes(diagram: unknown, board?: Board): Promise<Uint8Array> {
-    // Le schéma est enrichi des composants personnalisés utilisés pour rester
-    // autonome à la réouverture sur un autre poste. La source est la
-    // BIBLIOTHÈQUE .kompix — comme pour sendCustomParts : `globalState` n'est
-    // plus qu'un vestige, rempli à l'ouverture d'un projet, donc porteur de la
-    // version telle qu'elle était enregistrée AILLEURS (dessin sans dimensions
-    // des projets d'avant v2026.8.89, métadonnées perdues). Repli sur lui quand
-    // la bibliothèque n'est pas là (tests, hôte réduit).
-    const customParts = this.customPartsForProjix();
+    // Le schéma est enrichi des composants personnalisés QU'IL UTILISE, pour
+    // rester autonome à la réouverture sur un autre poste sans emporter toute la
+    // bibliothèque du poste d'origine. La source est la BIBLIOTHÈQUE .kompix —
+    // comme pour sendCustomParts : `globalState` n'est plus qu'un vestige,
+    // rempli à l'ouverture d'un projet, donc porteur de la version telle qu'elle
+    // était enregistrée AILLEURS (dessin sans dimensions des projets d'avant
+    // v2026.8.89, métadonnées perdues). Repli sur lui quand la bibliothèque
+    // n'est pas là (tests, hôte réduit).
+    const customParts = this.customPartsForProjix(diagram);
     const diagramPayload = { ...(diagram as object), customParts };
     const manifest: ProjixManifest = {
       format: 'projix',

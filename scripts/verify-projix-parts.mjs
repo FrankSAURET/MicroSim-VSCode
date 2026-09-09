@@ -100,8 +100,10 @@ const { SimulatorPanel } = await import(pathToFileURL(panelOut).href);
 const dmxGrove = await lireKompix('dmx-grove');
 const spot = await lireKompix('spot');
 
-/** Grave un .projix comme le fait « enregistrer (sous) », et rend son contenu. */
-const graveAvec = async ({ library, globalParts }) => {
+/** Grave un .projix comme le fait « enregistrer (sous) », et rend son contenu.
+ *  `poses` : les types réellement placés sur la feuille — un composant de
+ *  bibliothèque n'est gravé que si le schéma s'en sert (cf. contrôles plus bas). */
+const graveAvec = async ({ library, globalParts, poses = [] }) => {
   SimulatorPanel.library = library;
   const p = Object.create(SimulatorPanel.prototype);
   p.context = { globalState: { get: (_k, d) => globalParts ?? d, update: async () => {} } };
@@ -109,7 +111,8 @@ const graveAvec = async ({ library, globalParts }) => {
   p.codeFileRef = () => undefined;
   p.codeFileUri = undefined;
   p.effectiveDebugVars = () => ({});
-  const bytes = await p.buildProjixBytes({ parts: [], wires: [] }, 'uno');
+  const parts = poses.map((type, i) => ({ id: `p${i}`, type, x: 0, y: 0, attrs: {} }));
+  const bytes = await p.buildProjixBytes({ parts, wires: [] }, 'uno');
   const zip = await JSZip.loadAsync(bytes);
   return JSON.parse(await zip.file('diagram.json').async('string'));
 };
@@ -119,6 +122,7 @@ const graveAvec = async ({ library, globalParts }) => {
 const depuisLib = await graveAvec({
   library: { getComponents: () => [dmxGrove, { ...spot, behaviorScript: 'export function tick() {}' }] },
   globalParts: [{ type: 'perime', label: 'Périmé', kind: 'passive', pins: [], svg: degrade(dmxGrove.svg) }],
+  poses: [dmxGrove.type, spot.type],
 });
 check(depuisLib.customParts?.length === 2, 'projix : les composants viennent de la BIBLIOTHÈQUE, pas de l’état global',
   `types gravés : ${(depuisLib.customParts ?? []).map((p) => p.type).join(', ') || 'aucun'}`);
@@ -131,7 +135,7 @@ for (const part of depuisLib.customParts ?? []) {
 }
 
 // Sans bibliothèque (hôte réduit) : l'ancien état global reste le repli.
-const sansLib = await graveAvec({ library: undefined, globalParts: [{ type: 'perso', svg: '<svg/>' }] });
+const sansLib = await graveAvec({ library: undefined, globalParts: [{ type: 'perso', svg: '<svg/>' }], poses: ['perso'] });
 check(sansLib.customParts?.[0]?.type === 'perso', 'projix : repli sur l’état global quand la bibliothèque manque');
 
 // ------------------------------------------------- D. quel programme un « enregistrer sous » exécute
