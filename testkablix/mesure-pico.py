@@ -15,13 +15,24 @@ import time
 variateur = PWM(Pin(15))
 variateur.freq(1000)
 relais = Pin(14, Pin.OUT)
+boutonpoussoir = Pin(2, Pin.IN, Pin.PULL_DOWN)
 curseur = ADC(26)
 
-relais.value(1)          # le relais colle et reste colle
+def commande_relais(bouton):
+    relais.value(bouton.value())
+
+boutonpoussoir.irq(
+    trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING,
+    handler=commande_relais,
+)
+commande_relais(boutonpoussoir)
+
+# import time
 print("Banc de mesure : M1/M2 suivent le rapport cyclique, O1 non.")
 
 while True:
+    
     for pourcent in range(0, 101, 25):
         variateur.duty_u16(pourcent * 65535 // 100)
-        time.sleep_ms(1200)
+        time.sleep_ms(3000)
         print("rapport cyclique", pourcent, "%  |  curseur =", curseur.read_u16())

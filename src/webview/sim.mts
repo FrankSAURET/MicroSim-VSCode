@@ -1575,6 +1575,11 @@ function reportMotorFaults(): void {
       setStatus(`${t('A flyback diode is required')} (${st.partId})`);
     } else if (st.fault === 'starved') {
       blame(t('The supply cannot deliver the motor current'), st.partId, t('The supply cannot deliver the current this motor draws: a board pin is far too weak for a motor. Use a power supply and a transistor.'));
+    } else if (st.fault === 'saturated') {
+      // Ce n'est PAS l'alimentation : elle a du courant à revendre. C'est le
+      // transistor de commande qui n'en transmet plus assez — le cadre rouge va
+      // donc sur LUI, et l'explication dit quoi reprendre.
+      blame(t('The driving transistor cannot pass enough current'), st.faultPartId ?? st.partId, t('This transistor saturates: it only passes gain × base current, less than the motor draws, so the motor stays stalled. Lower the base resistor to drive more base current, or use a transistor with more gain.'));
     } else if (st.fault === 'weak') {
       blame(t('Motor voltage too low: it does not turn'), st.partId, t('Too little voltage to overcome the motor friction: the rotor stays stalled and the winding heats up. Supply it at its rated voltage, or cut the losses in series with it.'));
     } else if (st.fault === 'overvolt') {

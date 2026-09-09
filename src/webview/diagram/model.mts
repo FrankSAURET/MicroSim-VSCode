@@ -636,18 +636,25 @@ interface ResistiveEdge {
  *  `avoid` : nets qui ne peuvent pas être traversés (rail opposé du diviseur —
  *  un rail est une source équipotentielle, pas un conducteur de passage).
  *  `reached.drop` reçoit la somme des seuils de diode franchis sur ce chemin,
- *  `reached.limitAmps` le plus petit plafond de courant rencontré (transistor). */
+ *  `reached.limitAmps` le plus petit plafond de courant rencontré (transistor)
+ *  et `reached.limitPartId` le COMPOSANT qui le pose : « le courant est bridé »
+ *  n'est pas la même erreur selon que c'est l'alimentation ou un transistor mal
+ *  polarisé, et l'élève doit savoir lequel des deux reprendre. */
 function minOhmsPath(
   from: string,
   targets: Set<string>,
   adj: Map<string, ResistiveEdge[]>,
   avoid?: Set<string>,
-  reached?: { net?: string; drop?: number; limitAmps?: number; duty?: number },
+  reached?: { net?: string; drop?: number; limitAmps?: number; limitPartId?: string; duty?: number },
   dir: FlowDir = 'sink'
 ): number | null {
   const dist = new Map<string, number>([[from, 0]]);
   const drops = new Map<string, number>([[from, 0]]);
   const limits = new Map<string, number>([[from, Infinity]]);
+  // Qui pose ce plafond : le composant dont l'arête bride le plus. Sans lui, un
+  // moteur bridé par le Gain × Ib de SON transistor était accusé à
+  // l'alimentation, laquelle avait pourtant du courant à revendre.
+  const limitBy = new Map<string, string | undefined>([[from, undefined]]);
   // Produit des rapports cycliques rencontrés : deux hacheurs en série ne
   // laissent passer que le produit de leurs fractions de temps.
   const duties = new Map<string, number>([[from, 1]]);
@@ -667,6 +674,7 @@ function minOhmsPath(
         reached.net = cur;
         reached.drop = drops.get(cur) ?? 0;
         reached.limitAmps = limits.get(cur) ?? Infinity;
+        reached.limitPartId = limitBy.get(cur);
         reached.duty = duties.get(cur) ?? 1;
       }
       return best;
@@ -680,7 +688,10 @@ function minOhmsPath(
       if (d < (dist.get(e.to) ?? Infinity)) {
         dist.set(e.to, d);
         drops.set(e.to, (drops.get(cur) ?? 0) + (e.drop ?? 0));
-        limits.set(e.to, Math.min(limits.get(cur) ?? Infinity, e.limitAmps ?? Infinity));
+        const herite = limits.get(cur) ?? Infinity;
+        const propre = e.limitAmps ?? Infinity;
+        limits.set(e.to, Math.min(herite, propre));
+        limitBy.set(e.to, propre < herite ? e.partId : limitBy.get(cur));
         duties.set(e.to, (duties.get(cur) ?? 1) * (e.duty ?? 1));
       }
     }
@@ -1843,6 +1854,10 @@ export interface FanCircuit {
   supplyVolts: number;
   /** Courant que cette source peut débiter (A). */
   supplyAmps: number;
+  /** Composant qui BRIDE ce courant quand ce n'est pas la source elle-même :
+   *  le transistor de commande qui ne transmet que Gain × Ib. Absent quand le
+   *  plafond est bien celui de l'alimentation. */
+  limitPartId?: string;
   /** Résistance série du circuit hors ventilateur (Ω). */
   ohms: number;
   /** Broche MCU alimentant « + », si la source est une sortie de carte (PWM). */
@@ -1891,8 +1906,8 @@ function dcLoadCircuit(
   // le moteur, trouve une masse par sa borne opposée, et un moteur câblé à
   // l'envers semblait alimenté (`ohms` incluait sa propre résistance).
   const adj = withoutPart(full, partId);
-  const reached: { net?: string; drop?: number; limitAmps?: number; duty?: number } = {};
-  const sink: { net?: string; drop?: number; limitAmps?: number; duty?: number } = {};
+  const reached: { net?: string; drop?: number; limitAmps?: number; limitPartId?: string; duty?: number } = {};
+  const sink: { net?: string; drop?: number; limitAmps?: number; limitPartId?: string; duty?: number } = {};
   const hiNet = nets.netOf({ partId, pin: hiPin });
   const loNet = nets.netOf({ partId, pin: loPin });
   const up = minOhmsPath(hiNet, new Set([...digitalNets, ...vccNets]), adj, undefined, reached, 'source');
@@ -1910,11 +1925,23 @@ function dcLoadCircuit(
   const supplyVolts =
     Math.max(0, src.volts - (reached.drop ?? 0) - (sink.drop ?? 0)) * chop;
   const supplyAmps = Math.min(src.amps, reached.limitAmps ?? Infinity, sink.limitAmps ?? Infinity);
+  // Qui tient ce plafond : la source, ou un composant du chemin (transistor).
+  // On ne retient le composant que s'il bride PLUS SERRÉ que l'alimentation —
+  // sinon c'est bien elle qui est en cause.
+  const amont = reached.limitAmps ?? Infinity;
+  const aval = sink.limitAmps ?? Infinity;
+  const limitPartId =
+    supplyAmps >= src.amps
+      ? undefined
+      : amont <= aval
+        ? reached.limitPartId
+        : sink.limitPartId;
   // `nets` accompagne le résultat : hiNet/loNet ne veulent rien dire dans une
   // AUTRE netlist (les identifiants de net dépendent du graphe construit), et
   // l'appelant a besoin d'y chercher la diode de roue libre et le transistor.
   return {
     supplyVolts, supplyAmps, ohms: up + down, mcuPin: src.mcuPin,
+    ...(limitPartId !== undefined ? { limitPartId } : {}),
     ...(chop < 1 ? { chopped: true } : {}),
     hiNet, loNet, nets,
   };
@@ -1988,7 +2015,9 @@ export function fanSpeed(
  * dite à l'élève (`fault: 'weak'`), au contraire de la simple absence de
  * consigne. Une commande HACHÉE en est justement dispensée : à 5 % de rapport
  * cyclique le moteur ne tourne pas non plus, mais le câblage est bon et il
- * suffit d'ouvrir la consigne pour qu'il démarre.
+ * suffit d'ouvrir la consigne pour qu'il démarre. Peu importe d'où vient le
+ * hachage — transistor de commande ou broche alimentant le moteur en direct :
+ * dans les deux cas la consigne est basse, pas le montage faux.
  */
 const MOTOR_START_RATIO = 0.15;
 /** Au-delà de ce multiple de sa tension nominale, le moteur GRILLE. */
@@ -2001,7 +2030,7 @@ const MOTOR_MAX_SPEED = MOTOR_BURN_RATIO;
  *  `weak` : tension trop basse pour le décoller (sous MOTOR_START_RATIO), hors
  *  commande hachée — là c'est la consigne qui est basse, pas le montage. */
 export type MotorFault =
-  | 'none' | 'no-diode' | 'reversed-diode' | 'starved' | 'overvolt' | 'weak';
+  | 'none' | 'no-diode' | 'reversed-diode' | 'starved' | 'overvolt' | 'weak' | 'saturated';
 
 export interface MotorState {
   partId: string;
@@ -2014,8 +2043,9 @@ export interface MotorState {
   /** Vitesse en fraction du régime nominal (0 = arrêté, 1 = nominal). */
   speed: number;
   fault: MotorFault;
-  /** Composant à ENCADRER : la diode montée à l'envers, ou le transistor de
-   *  commande détruit par la surtension de coupure. */
+  /** Composant à ENCADRER : la diode montée à l'envers, le transistor de
+   *  commande détruit par la surtension de coupure, ou celui qui sature et
+   *  n'arrive plus à transmettre le courant demandé. */
   faultPartId?: string;
   /** Transistor de commande DÉTRUIT par l'absence de diode de roue libre. */
   blownTransistorId?: string;
@@ -2074,17 +2104,40 @@ export function motorStates(
     // celui d'une broche qui alimente le moteur sans transistor.
     const pwm = circuit.chopped ? 1 : Math.max(0, Math.min(1, duty?.(circuit.mcuPin) ?? 1));
     const applied = circuit.supplyVolts * pwm;
+    // La commande est HACHÉE des deux façons possibles : par un transistor sur
+    // la maille (`chopped`, la tension le porte déjà) ou par la broche qui
+    // alimente le moteur en direct (`pwm < 1`). Les deux dispensent du même
+    // message : le câblage est bon, c'est la consigne qui est basse.
+    const hache = circuit.chopped === true || pwm < 1;
     if (applied <= 0) {
       out.push({ ...idle, powered: true });
       continue;
     }
-    const amps = applied / (rMotor + circuit.ohms);
-    const volts = amps * rMotor;
-    // Le courant appelé dépasse ce que la source peut donner : elle s'effondre
-    // et le moteur ne démarre pas (broche de carte sur un moteur, typiquement).
+    let amps = applied / (rMotor + circuit.ohms);
+    let volts = amps * rMotor;
+    /** Transistor qui plafonne le courant, s'il y en a un (cf. juste dessous). */
+    let bride: string | undefined;
+    // Le courant demandé dépasse ce que le circuit peut donner. DEUX causes,
+    // qui ne se reprennent pas du tout de la même façon :
+    //
+    //  - la SOURCE s'effondre (broche de carte sur un moteur, typiquement) :
+    //    il n'y a rien à en tirer, le moteur ne démarre pas — c'est `starved` ;
+    //  - un TRANSISTOR de commande sort de saturation (`limitPartId`) : il
+    //    reste passant, mais ne transmet plus que Gain × Ib. Le moteur tourne
+    //    toujours, au ralenti, sur ce courant plafonné. Le lui refuser faisait
+    //    s'arrêter net un moteur qui, sur un vrai banc, tourne encore : le
+    //    PN2222A de mesure-pico plafonne à 91 mA pour un moteur qui en veut 96,
+    //    5 % au-dessus, et le moteur se coupait en accusant l'alimentation.
     if (amps > circuit.supplyAmps) {
-      out.push({ ...idle, powered: true, volts, amps, fault: 'starved' });
-      continue;
+      if (circuit.limitPartId === undefined) {
+        out.push({ ...idle, powered: true, volts, amps, fault: 'starved' });
+        continue;
+      }
+      // Le transistor bride : le moteur ne voit que ce courant-là, donc que la
+      // tension correspondante. C'est ce que mesure le voltmètre à ses bornes.
+      amps = circuit.supplyAmps;
+      volts = amps * rMotor;
+      bride = circuit.limitPartId;
     }
     // Roue libre : passée en revue AVANT la surtension, c'est le défaut de
     // câblage — celui qui détruit le transistor, pas le moteur.
@@ -2111,10 +2164,24 @@ export function motorStates(
     // cyclique pour que le moteur démarre. Lui coller une erreur reviendrait à
     // signaler un défaut à chaque passage par le bas d'une rampe de vitesse.
     const cale = ratio < MOTOR_START_RATIO;
+    // Un transistor qui plafonne le courant ne devient une ERREUR que s'il cale
+    // vraiment le moteur. Bridé de quelques pour cent, celui-ci tourne un peu
+    // moins vite et il n'y a rien à dire : c'est le fonctionnement ordinaire
+    // d'un montage dont le gain est juste. Quand il cale, en revanche, c'est le
+    // TRANSISTOR qu'il faut reprendre (base moins résistive, gain plus élevé),
+    // pas la tension d'alimentation dont parle `weak`.
+    const fault: MotorFault = !cale
+      ? 'none'
+      : bride !== undefined
+        ? 'saturated'
+        : hache
+          ? 'none'
+          : 'weak';
     out.push({
       partId: part.id, powered: true, volts, amps,
       speed: cale ? 0 : Math.min(MOTOR_MAX_SPEED, ratio),
-      fault: cale && !circuit.chopped ? 'weak' : 'none',
+      fault,
+      ...(fault === 'saturated' ? { faultPartId: bride } : {}),
     });
   }
   return out;

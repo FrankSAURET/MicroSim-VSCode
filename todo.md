@@ -1,4 +1,9 @@
 # À faire
+1. Tu ne t'occupe plus jamais de todo temp.md juste tu le commit à chaque fois que tu le trouve modifié.
+1. ✅ j'ai modifié mesure-pico (projix et py) tu pars de ma version. (lot .62)
+1. CTRL + clic retrace tous les fils (ou tous ce qui est sélectionné) càd, supprime tous les coudes puis retrace.
+1. ✅ Dans mesure-pico il y a encore des pb avec le moteur. il ne doit pas afficher l'erreur trop peu de tension s'il est commandé par un pwm et que pour le rapport cyclique max il peut tourner. (lot .62)
+1. ✅ Quand la tension arrive à 4,79 il peut tourner mais l'erreur "l'alimentation ne fournit pas le courant..." apparait sans raison. Les masses étant toutes reliées il n'y a pas de pb. (lot .62)
 1. ✅ si j'ouvre mesure-pico.projix je me trouve avec une feuille grise dans tous les projets projix (le fichier s'affiche puis tout s'efface) (lot .60)
 1. ✅ Ajuste la taille de la barre grise sous le texte d'info des composants à la taille de ce texte. (lot .60)
 1. ✅ Note le changement de mes fichiers mesure. Ils sont ceux à partir desquels on continue. (lot .60)
@@ -20,6 +25,22 @@
 2. ✅ Nouvelle couleur du multimètre appliquée (lot .57)
 
 ## ne pas faire pour l'instant
+---
+
+# >>>>  v2026.9.2.62 — Le transistor qui bride n'est pas l'alimentation qui manque
+
+1. ✅ **L'erreur à 4,79 V accusait la mauvaise pièce** (item 5). Reproduit au banc sur le VRAI schéma de Frank : à rapport cyclique plein, le moteur Act1 demande **95,8 mA** et n'en reçoit que **91**. Ce plafond n'a rien à voir avec Alim1, qui a 2 A à revendre : c'est le **PN2222A** T1 qui sature — gain 35 × Ib 2,6 mA = 91 mA au collecteur. Le modèle rangeait ça dans `starved` et affichait « l'alimentation ne fournit pas le courant… une broche de carte est très loin du compte », sur un montage qui n'a ni broche de carte en cause ni alimentation faible.
+2. ✅ **Deux pannes distinctes, deux traitements** ([model.mts](src/webview/diagram/model.mts)). La SOURCE qui s'effondre (broche de carte sur un moteur) reste `starved` : il n'y a rien à en tirer, le moteur ne démarre pas. Le TRANSISTOR qui sature devient `saturated` : il reste passant, simplement il ne transmet que Gain × Ib. Le moteur **tourne toujours**, au ralenti, sur ce courant plafonné — c'est ce que fait un vrai banc, et le couper net était faux.
+3. ✅ **Le chemin porte désormais QUI le bride**, pas seulement de combien. `minOhmsPath` suivait le plus petit plafond rencontré sans retenir le composant qui le pose ; il propage maintenant `limitPartId` à côté de `limitAmps`, et `dcLoadCircuit` ne le retient que si ce composant serre **plus** que l'alimentation. Sans cette identité, aucun message ne pouvait distinguer les deux pannes.
+4. ✅ **Résultat sur mesure-pico** : à 100 % de rapport cyclique, 4,55 V aux bornes, 91 mA, **91 % de régime, aucune erreur**. Le moteur tourne, le voltmètre lit la tension qui correspond au courant réellement transmis. Aux rapports intermédiaires (25, 50, 75 %) rien ne change : le transistor ne bride qu'au sommet.
+5. ✅ **Quand le bridage cale VRAIMENT le moteur**, c'est le transistor qui prend le cadre rouge et l'explication — « il ne passe que gain × courant de base : baissez la résistance de base, ou prenez un transistor de plus fort gain » ([sim.mts](src/webview/sim.mts)). Le message `weak` parlait de tension d'alimentation, ce qui envoyait l'élève reprendre la seule chose qui n'y était pour rien.
+6. ✅ **Le « trop peu de tension » sous PWM ne regardait qu'un seul des deux hachages** (item 4). La dispense était accrochée à `circuit.chopped`, qui n'est posé que par un **transistor** haché sur la maille. Un petit moteur alimenté **en direct par une broche** et haché par elle passait au travers : à 10 % de consigne il criait « tension trop faible » alors qu'à 100 % il tourne — le câblage n'avait rien, seule la consigne était basse.
+7. ✅ **La dispense se fonde maintenant sur le fait d'être haché**, d'où que vienne le hachage : transistor sur la maille, ou broche alimentant le moteur. Le vrai défaut, lui, se dit toujours — sans hachage, une alimentation trop faible reste `weak`, contrôlé au banc.
+8. ✅ **Deux sections ajoutées à `verify:motor`** (14 contrôles). Le bridage de quelques pour cent (le moteur tourne, aucune erreur, courant plafonné à Gain × Ib), le bridage sévère (`saturated`, cadre sur le transistor), la broche de carte affamée qui reste `starved` sans accuser de transistor, et le PWM par broche directe à 10 % puis 100 %. **106 des 107 bancs passent.**
+9. ✅ **Les fichiers mesure de Frank font foi** (item 2) : `mesure-pico.projix` (24 composants, 44 fils, bouton-poussoir BP1 ajouté sur GP2) et `mesure-pico.py` (le relais suit maintenant BP1 par interruption, sur les deux fronts, au lieu de coller en permanence) sont repris tels quels. Aucune retouche.
+10. ⏳ **Les 92 ko de `customParts` parasites sont revenus** dans les deux fichiers mesure — 7 composants Grove qu'une session F5 redépose et dont aucun composant du schéma ne se sert, exactement comme au lot .60. Le script de purge est écrit ([_purge-customparts.mjs](scripts/_purge-customparts.mjs), archivage dans `A Examiner/` avant réécriture) mais **son exécution a été refusée** : il réécrit des fichiers de Frank. À lancer sur son accord.
+11. ⏳ **`verify:i18n`** : les six libellés du lot .61 (`vcesat`, `vgsth`) plus les **deux messages** de ce lot. C'est la règle des traductions, pas un défaut — la langue de base (EN) est écrite au fil de l'eau, le dictionnaire FR part avec le lot d'avant publication.
+
 ---
 
 # >>>>  v2026.9.2.61 — Un contrôle qui ne peut pas passer ne prouve rien

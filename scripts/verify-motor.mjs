@@ -718,5 +718,111 @@ console.log('Tension trop faible / trop forte :');
     `${(limite.speed * 100).toFixed(0)} %, fault=${limite.fault}`);
 }
 
+// --- 7. Qui BRIDE le courant : l'alimentation, ou le transistor ? ------------
+// Un moteur qui demande plus que le circuit ne donne, ce sont DEUX pannes très
+// différentes, et jusqu'ici elles portaient le même message (« l'alimentation
+// ne fournit pas le courant ») :
+//   - la SOURCE s'effondre : une broche de carte sur un moteur, rien à en tirer ;
+//   - le TRANSISTOR de commande sature : il ne transmet que Gain × Ib. Il reste
+//     passant, le moteur tourne au ralenti sur ce courant plafonné.
+// Le banc mesure-pico de Frank est exactement le second cas : PN2222A de gain
+// 35, Ib = 2,6 mA → 91 mA au collecteur, pour un moteur qui en veut 96. Cinq
+// pour cent de trop, et le moteur s'arrêtait en accusant une alimentation qui
+// avait 2 A à revendre.
+console.log('Bridage du courant : source affamée ou transistor saturé :');
+{
+  // Alim de labo largement dimensionnée + PN2222A : c'est LUI qui plafonne.
+  const parTransistor = (baseOhms, motorAmps) => ({
+    parts: [
+      { id: 'uno', type: 'uno', x: 0, y: 0, attrs: {} },
+      ALIM('5', '2'),
+      { id: 'q', type: 'pn2222a', x: 0, y: 0, attrs: {} },
+      { id: 'rb', type: 'resistor', x: 0, y: 0, attrs: { value: String(baseOhms) } },
+      M({ current: String(motorAmps) }),
+      { id: 'd1', type: 'diode', x: 0, y: 0, attrs: {} },
+    ],
+    wires: [
+      W('w1', P('uno', '9'), P('rb', '1')),
+      W('w2', P('rb', '2'), P('q', 'B')),
+      W('w3', P('psu1', 'V+'), P('m1', '1')),
+      W('w4', P('m1', '2'), P('q', 'C')),
+      W('w5', P('q', 'E'), P('psu1', 'GND')),
+      W('w6', P('m1', '1'), P('d1', 'K')),
+      W('w7', P('m1', '2'), P('d1', 'A')),
+    ],
+  });
+  const etat = (banc) => {
+    for (let i = 0; i < 3; i++) {
+      model.setActiveBridges(model.commandedBridges(banc, (n) => n === '9', 5));
+    }
+    const st = model.motorStates(banc, 5, () => 1)[0];
+    model.setActiveBridges([]);
+    return st;
+  };
+  // Le cas de Frank, à quelques pour cent près : le transistor transmet un peu
+  // moins que ce que le moteur demande. Il bride, mais le moteur tourne encore.
+  // Base de 2,2 kΩ sous 5 V → Ib ≈ 1,95 mA, soit 68 mA transmis par le gain 35,
+  // pour un moteur 5 V / 0,08 A qui en veut 80.
+  const frottement = etat(parTransistor(2200, 0.08));
+  const plafond = frottement.amps;
+  check('transistor bridant de quelques % : le moteur TOURNE (plus aucune erreur)',
+    frottement.fault === 'none' && frottement.speed > 0.5,
+    `${(frottement.speed * 100).toFixed(0)} %, ${(plafond * 1000).toFixed(1)} mA, fault=${frottement.fault}`);
+  check('le courant est PLAFONNÉ à ce que le transistor transmet (Gain × Ib)',
+    plafond < 0.08 && plafond > 0.06,
+    `${(plafond * 1000).toFixed(1)} mA au lieu des 80 mA demandés`);
+
+  // Bridage SÉVÈRE : base très résistive, le transistor ne passe presque rien.
+  // Là le moteur cale vraiment — et c'est le TRANSISTOR qu'on accuse, pas
+  // l'alimentation qui n'y est pour rien.
+  const cale = etat(parTransistor(100000, 0.2));
+  check('transistor bridant à fond : le moteur cale et c’est SATURATED',
+    cale.fault === 'saturated' && cale.speed === 0, `fault=${cale.fault}`);
+  check('le cadre rouge va sur le TRANSISTOR, pas sur le moteur',
+    cale.faultPartId === 'q', `faultPartId=${cale.faultPartId}`);
+
+  // L'autre panne reste dite comme avant : une BROCHE de carte (40 mA) sur un
+  // moteur qui en veut 200. Là c'est bien la source, et rien ne la sauve.
+  const surBroche = {
+    parts: [{ id: 'uno', type: 'uno', x: 0, y: 0, attrs: {} }, M()],
+    wires: [W('w1', P('uno', '9'), P('m1', '1')), W('w2', P('m1', '2'), P('uno', 'GND.1'))],
+  };
+  const affame = model.motorStates(surBroche, 5, () => 1)[0];
+  check('broche de carte sur un moteur : toujours STARVED (la source, elle, s’effondre)',
+    affame.fault === 'starved' && affame.speed === 0, `fault=${affame.fault}`);
+  check('rien n’accuse un transistor quand il n’y en a pas',
+    affame.faultPartId === undefined, `faultPartId=${affame.faultPartId}`);
+}
+
+// --- 8. PWM par la broche elle-même, sans transistor sur la maille -----------
+// Le garde-fou « une commande hachée ne signale pas de défaut » ne regardait que
+// le hachage porté par un TRANSISTOR (`chopped`). Un petit moteur alimenté en
+// direct par une broche et haché par elle passait à côté : à 10 % de consigne il
+// criait « tension trop faible » alors qu'à 100 % il tourne — le montage est
+// bon, c'est la consigne qui est basse.
+console.log('PWM par la broche, sans transistor :');
+{
+  // 5 V / 20 mA : dans ce que donne une broche (40 mA), donc pas affamé.
+  const surBroche = {
+    parts: [
+      { id: 'uno', type: 'uno', x: 0, y: 0, attrs: {} },
+      M({ current: '0.02' }),
+    ],
+    wires: [W('w1', P('uno', '9'), P('m1', '1')), W('w2', P('m1', '2'), P('uno', 'GND.1'))],
+  };
+  const a = (duty) => model.motorStates(surBroche, 5, () => duty)[0];
+  const bas = a(0.1);
+  const haut = a(1);
+  check('10 % de consigne : arrêté, mais AUCUNE erreur (le montage est bon)',
+    bas.speed === 0 && bas.fault === 'none', `vitesse ${bas.speed}, fault=${bas.fault}`);
+  check('100 % : il tourne — la preuve que le câblage n’avait rien',
+    haut.speed > 0.9 && haut.fault === 'none', `${(haut.speed * 100).toFixed(0)} %`);
+  // Et le vrai défaut de tension, lui, se dit toujours : sans hachage, une
+  // alimentation trop faible reste une erreur de montage.
+  const vraiDefaut = state(direct(0.7));
+  check('sans hachage, une tension trop faible reste signalée (weak)',
+    vraiDefaut.fault === 'weak', `fault=${vraiDefaut.fault}`);
+}
+
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);
 process.exit(failures === 0 ? 0 : 1);
