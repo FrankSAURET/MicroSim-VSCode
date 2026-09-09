@@ -240,7 +240,7 @@ console.log('Mise en garde « série muette sur Pico » :');
 	check('le câblage des entrées est protégé au lancement',
 		/try \{\s*rebind\(\);\s*\} catch/.test(lancement) && /engine\.start\(\);/.test(lancement));
 	check('un câblage en échec est dit à l’élève (console + barre d’état)',
-		/appendSerial\(`\n── \$\{t\('Wiring error'\)\}/.test(lancement) &&
+		/appendSerial\(`\s*── \$\{t\('Wiring error'\)\}/.test(lancement) &&
 		/flashStatus\(t\('Error: \{0\}', detail\)\)/.test(lancement));
 }
 
