@@ -1,19 +1,25 @@
 # À faire
-
-1. ✅ j'ai modifié mesure-pico (projix et py) tu pars de ma version. (lot .62)
-1. CTRL + clic retrace tous les fils (ou tous ce qui est sélectionné) càd, supprime tous les coudes puis retrace.
-1. ✅ Dans mesure-pico il y a encore des pb avec le moteur. il ne doit pas afficher l'erreur trop peu de tension s'il est commandé par un pwm et que pour le rapport cyclique max il peut tourner. (lot .62)
-1. ✅ Quand la tension arrive à 4,79 il peut tourner mais l'erreur "l'alimentation ne fournit pas le courant..." apparait sans raison. Les masses étant toutes reliées il n'y a pas de pb. (lot .62)
-
-1. ✅ si j'ouvre mesure-pico.projix je me trouve avec une feuille grise dans tous les projets projix (le fichier s'affiche puis tout s'efface) (lot .60)
-
-1. ✅ L'emplacement de l'étiquette du ventilateur et de la carte arduino doivent être au plus proche du composant (à toucher le cadre de sélection  comme les autres). Pour le ventilateur le cadre de sélection  est mal ajusté.
-
-
-
+1. 
 
 ## ne pas faire pour l'instant
 - Ajouter résistance de puissance
+---
+
+# >>>>  v2026.9.2.64 — Un défaut corrigé doit s'effacer de l'écran
+
+1. ✅ **Le « trop peu de tension » en permanence n'était PAS un défaut du modèle** (item 1). Reproduit au banc sur le vrai `mesure-pico.projix` de Frank, ponts commandés résolus comme le fait `resolveBridges()` : Act1 rend `fault = none` à TOUS les rapports cycliques — 0,479 V / 9,6 mA à 10 %, 4,550 V / 91 mA / **91 % de régime** à 100 %, relais fermé comme relais ouvert. Le calcul était juste depuis le lot .62 ; c'est l'AFFICHAGE qui gardait le message.
+2. ✅ **`reportMotorFaults` ne retirait jamais le cadre rouge d'un défaut porté par le moteur LUI-MÊME** ([sim.mts](src/webview/sim.mts)). Une condition parasite `&& previous !== st.partId` traînait dans le retrait : le cadre n'était enlevé que s'il était posé sur un AUTRE composant. Un `weak` ou un `starved` légitime — Frank baisse le bouton de l'alimentation une seconde — restait donc affiché **à vie**, cadre et bulle compris, alors que le moteur tournait de nouveau.
+3. ✅ **Le cadre part dès que le défaut CHANGE**, y compris quand il disparaît — même règle que le relais. Un composant GRILLÉ garde le sien : c'est `markBurned` qui le tient, pas le défaut de la frame, et les deux gardes (`burnedMotors`, `blownDrivers`) sont conservées. Section 6 neuve dans `verify:motor` : sans le correctif, 2 contrôles tombent.
+4. ✅ **Ctrl + clic sur le bouton d'autoroutage = RETRACEMENT** (item 2), le geste que Frank a choisi. Clic simple : autoroutage comme avant, qui **préserve** un fil déjà propre. Ctrl + clic : les coudes sont effacés et le tracé repart de la ligne droite.
+5. ✅ **Le garde-fou « ne jamais dégrader un fil existant » est ce qui empêchait d'obtenir ce geste**, et il est levé DEUX fois sous `force` ([editor.mts](src/webview/diagram/editor.mts)) : les coudes effacés rendent l'original diagonal (donc `origOrtho` faux), et la condition de préservation le teste explicitement. Sans quoi un détour posé à la main survit au retracement — c'est justement ce qu'on lui demande d'abandonner.
+6. ✅ **Nouveau type `AutoRouteScope`** (`wireIds` + `force`) partagé par `autoRoute`, `autoRouteSteps` et `autoRouteProgressive`. `retraceScope()` décide de la portée : les fils **sélectionnés** s'il y en a (un lot pris au marquee), tout le dessin sinon. `wireIds` désigne des fils nommément et l'emporte sur la règle sélection/tout, qui ne sait raisonner qu'en composants. Les segments du décor sont retirés avec les coudes, sinon le nouveau tracé se contourne lui-même.
+7. ✅ **4 contrôles neufs dans `verify:route`** (77 au total), dans le vrai éditeur en Chrome headless : un détour orthogonal à 2 coudes posé à la main — sous le seuil du « bon fil » — est **préservé** au clic simple et **effacé** au Ctrl + clic ; un fil sélectionné limite bien le retracement à lui seul et son voisin garde son tracé.
+8. ✅ **rp2040js 1.3.3 → 1.3.4 faite** (item 3). Deux corrections réelles, toutes deux utiles ici : `peripherals/pwm.js` testait `PH_ADV`/`PH_RET` (avance et recul de phase) **après** les avoir effacés du registre `csr` — ils ne se déclenchaient donc jamais ; ils sont maintenant lus sur la valeur écrite et seulement si `CSR_EN`. Et `utils/timer32.js` : `advance(delta)` reboucle enfin `baseValue` dans la plage du compteur (modulo `topValue + 1`, ou `topValue × 2` en mode ZigZag) et signale la mise à jour.
+9. ℹ️ **Le reste de la 1.3.4 ne change rien** : `gdb/gdb-server.js` ne touche qu'à ses fins de ligne (CRLF), aucun comportement. **Aucun recouvrement avec nos correctifs maison** — [rp2040js+1.3.4.patch](patches/rp2040js+1.3.4.patch) (renommé par `git mv`, 1814 lignes) touche `simulation-clock.js`, `cortex-m0-core.js`, `pio.*`, `uart.js`, `rp2040.js`, dont pas un n'a bougé entre les deux versions : application sans conflit.
+10. ✅ **`verify:decode` a bien attrapé la montée de version** — seul banc tombé par le changement, et c'était son travail : il refuse de juger une table de décodage sur une référence d'une AUTRE version. Référence régénérée depuis l'amont 1.3.4 vierge ([_decode-reference.json](scripts/_decode-reference.json), procédure de l'en-tête de `_gen-decode-rp2040.mjs`) : **les 83 empreintes de branches sont identiques au bit près**, seuls le numéro de version et un nom de script dans le commentaire changent. C'est la preuve directe que la cascade de décodage n'a pas bougé — la table portée par le correctif reste donc valable telle quelle, sans régénération.
+11. ✅ **Équivalence re-prouvée sur 1.3.4**, exhaustivement : les 65 536 opcodes désignent la même instruction que la cascade d'amont, plus **16,8 M couples (opcode, opcode2)** pour les 7 instructions larges, et la décision ne dépend jamais d'opcode2 hors du préfixe `0b11110`. **105 des 107 bancs passent** ; le seul autre échec est `verify:i18n`, le ⏳ ci-dessous.
+12. ⏳ **`verify:i18n`** : les libellés des lots .61 et .62, plus **la nouvelle infobulle du bouton d'autoroutage** ([webview-html.ts](src/webview-html.ts), mention du Ctrl + clic) qui passe par `l10n.t`. Langue de base écrite, dictionnaire FR au lot d'avant publication — la règle, pas un défaut. Le dictionnaire interne de la webview ([i18n.mts](src/webview/i18n.mts)), lui, est à jour : « Retracé complet des fils… ».
+
 ---
 
 # >>>>  v2026.9.2.63 — Un projet n'emporte pas la bibliothèque entière

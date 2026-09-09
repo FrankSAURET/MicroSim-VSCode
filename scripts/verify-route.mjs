@@ -827,6 +827,55 @@ async function run() {
 			caps.children[0].style.fill);
 	}
 
+	// --- Ctrl + clic sur le bouton : RETRACER, coudes effacés ------------------
+	// Le clic simple PRÉSERVE un fil déjà orthogonal, même bourré de coudes
+	// inutiles : c'est ce garde-fou qui empêche l'autoroutage d'abîmer un montage
+	// réglé à la main. Ctrl demande le contraire — on repart de la ligne droite.
+	// Deux broches alignées, un détour en escalier posé À LA MAIN : l'autoroutage
+	// ordinaire le garde, le retracement le rend droit.
+	{
+		const nA = editor.addPart('ntc', 900, 900);
+		const nB = editor.addPart('ptc', 970, 900);
+		await wait(80);
+		editor.addWire({ partId: nA.id, pin: '2' }, { partId: nB.id, pin: '1' });
+		await wait(30);
+		const wR = editor.diagram.wires[editor.diagram.wires.length - 1];
+		// Détour imposé : DEUX coudes bien orthogonaux, sans défaut (il ne survole
+		// ni corps ni broche, ne se superpose à rien). Sous les 4 coudes de la
+		// définition du « bon fil », le garde-fou le préserve donc tel quel —
+		// c'est exactement le tracé réglé à la main que le clic simple respecte.
+		const cA = editor.hotspotCenter({ partId: nA.id, pin: '2' });
+		const cB = editor.hotspotCenter({ partId: nB.id, pin: '1' });
+		const detour = [{ x: cA.x, y: cA.y + 40 }, { x: cB.x, y: cA.y + 40 }];
+		wR.points = detour.map((p) => ({ ...p }));
+		editor.positionWire(wR);
+		editor.select(null);
+		editor.autoRoute();
+		ok('clic simple : le détour orthogonal posé à la main est PRÉSERVÉ',
+			(wR.points ?? []).length > 0, S(wR.points ?? []));
+		editor.autoRoute(editor.retraceScope());
+		ok('Ctrl + clic : les coudes sont effacés, le fil redevient droit',
+			!wR.points || wR.points.length === 0, S(wR.points ?? []));
+
+		// Portée : des fils SÉLECTIONNÉS limitent le retracement à eux seuls.
+		editor.addWire({ partId: nA.id, pin: '1' }, { partId: nB.id, pin: '2' });
+		await wait(30);
+		const wSeul = editor.diagram.wires[editor.diagram.wires.length - 1];
+		wR.points = detour.map((p) => ({ ...p }));
+		wSeul.points = detour.map((p) => ({ ...p, y: p.y + 10 }));
+		editor.positionWire(wR);
+		editor.positionWire(wSeul);
+		editor.toggleWireInSelection(wSeul.id);
+		const portee = editor.retraceScope();
+		ok('portée : un fil sélectionné limite le retracement à lui seul',
+			Array.isArray(portee.wireIds) && portee.wireIds.length === 1 &&
+			portee.wireIds[0] === wSeul.id && portee.force === true,
+			JSON.stringify(portee.wireIds ?? null));
+		editor.autoRoute(portee);
+		ok('portée : le fil NON sélectionné garde son tracé',
+			(wR.points ?? []).length > 0, S(wR.points ?? []));
+	}
+
 	const out = document.createElement('pre');
 	out.id = 'measures';
 	out.textContent = JSON.stringify(checks);

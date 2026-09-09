@@ -102,6 +102,21 @@ export interface PaletteState {
 
 export type PaletteFold = 'expand' | 'collapse' | 'auto';
 
+/**
+ * Sur QUOI porte un autoroutage, et avec quelle liberté.
+ *
+ * Par défaut (objet vide) le comportement historique du bouton : la sélection
+ * de composants si elle existe, tout le dessin sinon, en préservant les fils
+ * déjà propres. `wireIds` désigne des fils NOMMÉMENT (Ctrl + clic), et `force`
+ * dit de repartir de la ligne droite — coudes effacés, garde-fou levé.
+ */
+export interface AutoRouteScope {
+  /** Fils à router, par identifiant. Absent : la règle sélection/tout. */
+  wireIds?: Iterable<string>;
+  /** Effacer les coudes d'abord et ne PAS préserver le tracé en place. */
+  force?: boolean;
+}
+
 /** Trou de platine d'essai, en coordonnées canvas (cache pendant un drag). */
 interface BreadboardHole {
   partId: string;
@@ -3860,8 +3875,23 @@ export class Editor {
    * plus cher que longer un fil. Sur la sélection si des composants sont
    * sélectionnés, sinon sur tout le dessin.
    */
-  autoRoute(): void {
-    for (const _ of this.autoRouteSteps()) { /* déroulé d'un trait */ }
+  autoRoute(opts: AutoRouteScope = {}): void {
+    for (const _ of this.autoRouteSteps(opts)) { /* déroulé d'un trait */ }
+  }
+
+  /**
+   * Portée d'un RETRACEMENT (Ctrl + clic sur le bouton d'autoroutage) : les
+   * coudes sont effacés et le tracé repart de zéro, au lieu d'être préservé
+   * comme le fait le clic simple.
+   *
+   * Sur la sélection quand il y en a une — les fils sélectionnés d'abord (un
+   * lot de câbles pris au marquee), sinon les fils des composants sélectionnés,
+   * que `autoRouteSteps` sait déjà retrouver seul. Rien de sélectionné : tout le
+   * dessin, comme le clic simple.
+   */
+  retraceScope(): AutoRouteScope {
+    if (this.selectedWires.size > 0) return { wireIds: [...this.selectedWires], force: true };
+    return { force: true };
   }
 
   /**
@@ -3872,7 +3902,7 @@ export class Editor {
    * `onProgress` alimente la barre d'avancement, `shouldCancel` l'arrête net :
    * les fils déjà routés le restent, les suivants gardent leur tracé.
    */
-  async autoRouteProgressive(opts: {
+  async autoRouteProgressive(opts: AutoRouteScope & {
     onProgress?: (done: number, total: number) => void;
     shouldCancel?: () => boolean;
     /** Durée d'une tranche de calcul, en ms (0 = rendre la main à chaque fil). */
@@ -3882,7 +3912,7 @@ export class Editor {
     let etat = { done: 0, total: 0 };
     let cancelled = false;
     let repere = performance.now();
-    const it = this.autoRouteSteps();
+    const it = this.autoRouteSteps({ wireIds: opts.wireIds, force: opts.force });
     let pas = it.next();
     while (!pas.done) {
       etat = pas.value;
@@ -3907,7 +3937,9 @@ export class Editor {
    * Cœur de l'autoroutage, fil par fil : rend `{ done, total }` avant chaque
    * fil et s'arrête si l'appelant lui repasse `true`.
    */
-  private *autoRouteSteps(): Generator<{ done: number; total: number }, void, boolean | undefined> {
+  private *autoRouteSteps(
+    scope: AutoRouteScope = {},
+  ): Generator<{ done: number; total: number }, void, boolean | undefined> {
     if (this.locked) return;
     const sel = this.selectedParts;
     const all = sel.size === 0;
@@ -4017,8 +4049,11 @@ export class Editor {
     let changed = false;
     // Liste arrêtée d'avance : elle donne le total de la barre d'avancement, et
     // le routage progressif ne doit pas courir après un schéma qui bouge.
+    // `wireIds` désigne des fils NOMMÉMENT : il l'emporte sur la règle
+    // sélection/tout, qui ne sait raisonner qu'en composants.
+    const nommes = scope.wireIds ? new Set(scope.wireIds) : null;
     const todo = this.diagram.wires.filter(
-      (w) => !w.auto && (all || sel.has(w.a.partId) || sel.has(w.b.partId)),
+      (w) => !w.auto && (nommes ? nommes.has(w.id) : all || sel.has(w.a.partId) || sel.has(w.b.partId)),
     );
     const total = todo.length;
     let done = 0;
@@ -4027,6 +4062,16 @@ export class Editor {
       done++;
       // Le fil a pu disparaître entre deux pauses (suppression au clavier).
       if (!this.diagram.wires.includes(wire)) continue;
+      // Retracement FORCÉ : les coudes en place sont effacés avant le calcul.
+      // Le fil repart de la ligne droite — c'est ce que demande le geste, et
+      // c'est aussi ce qui neutralise le garde-fou « ne jamais dégrader » plus
+      // bas : un original droit-diagonal n'a rien à préserver. On efface aussi
+      // ses segments du décor, sinon le nouveau tracé se contournerait lui-même.
+      if (scope.force && wire.points && wire.points.length > 0) {
+        wire.points = undefined;
+        wireSegs.delete(wire.id);
+        changed = true;
+      }
       const a = this.hotspotCenter(wire.a);
       const b = this.hotspotCenter(wire.b);
       if (!a || !b) continue;
@@ -4528,7 +4573,9 @@ export class Editor {
         // descendaient toute une colonne de prise Grove ; l'A* en trouvait un
         // propre, mais le score gardait l'ancien parce qu'il était plus court.)
         newFlaws < origFlaws - 0.01;
-      if (origOrtho && !rescue && origScore <= newScore + 0.01) {
+      // `force` (Ctrl + clic) : Frank a demandé un tracé NEUF, le fil en place
+      // n'a plus voix au chapitre — même s'il était le meilleur des deux.
+      if (!scope.force && origOrtho && !rescue && origScore <= newScore + 0.01) {
         // Le reroutage n'améliore rien (ou dégrade) : on garde le fil tel quel, en
         // n'appliquant que l'optimisation colinéaire et le redressement des
         // escaliers — deux passes qui ne peuvent que faire baisser son coût.

@@ -1559,9 +1559,20 @@ function reportMotorFaults(): void {
     if ((motorFaults.get(st.partId) ?? 'none') === st.fault) continue;
     motorFaults.set(st.partId, st.fault);
     // Le cadre rouge désigne, l'étiquette explique (même règle que le relais).
+    // Le cadre est retiré dès que le défaut CHANGE — y compris quand il
+    // disparaît. La condition `previous !== st.partId` qui traînait ici ne le
+    // retirait que s'il était posé sur un AUTRE composant : un défaut porté par
+    // le moteur lui-même (`weak`, `starved`) restait donc affiché à VIE, cadre
+    // rouge et bulle compris, alors que le moteur tournait de nouveau. C'est
+    // exactement ce que Frank voyait en permanence sur mesure-pico : le message
+    // « trop peu de tension » posé au passage à rapport cyclique nul ne partait
+    // plus. Un composant GRILLÉ garde le sien : c'est `markBurned` qui le tient,
+    // pas le défaut de la frame.
     const previous = motorFaultMarks.get(st.partId);
-    if (previous !== undefined && previous !== st.partId) {
-      editor.setFaulty(previous, false); // défaut corrigé (ou remplacé) : cadre retiré
+    if (previous !== undefined) {
+      if (!burnedMotors.has(previous) && !blownDrivers.has(previous)) {
+        editor.setFaulty(previous, false); // défaut corrigé (ou remplacé) : cadre retiré
+      }
       motorFaultMarks.delete(st.partId);
     }
     const blame = (msg: string, id: string, note: string): void => {
@@ -4107,20 +4118,28 @@ taskCancelBtn.addEventListener('click', () => {
   taskCancelBtn.disabled = true;
 });
 let routing = false;
-autoRouteBtn.addEventListener('click', async () => {
+// Ctrl + clic : RETRACEMENT. Le clic simple préserve un fil déjà propre — c'est
+// ce qu'on veut d'habitude, et ce qui empêche l'autoroutage d'abîmer un montage
+// réglé à la main. Mais quand Frank JUGE qu'un tracé est à refaire, ce
+// garde-fou l'empêche justement d'obtenir ce qu'il demande : Ctrl efface les
+// coudes et repart de la ligne droite, sur les fils sélectionnés s'il y en a.
+autoRouteBtn.addEventListener('click', async (e) => {
   if (routing) return;
   routing = true;
+  const scope = e.ctrlKey || e.metaKey ? editor.retraceScope() : {};
+  const titre = scope.force ? t('Re-routing the wires from scratch…') : t('Auto-routing the wires…');
   taskCancelled = false;
   taskCancelBtn.disabled = false;
   taskBar.value = 0;
-  taskLabel.textContent = t('Auto-routing the wires…');
+  taskLabel.textContent = titre;
   taskEl.hidden = false;
   try {
     const { done, total, cancelled } = await editor.autoRouteProgressive({
+      ...scope,
       onProgress: (fait, sur) => {
         taskBar.max = Math.max(1, sur);
         taskBar.value = fait;
-        taskLabel.textContent = `${t('Auto-routing the wires…')} ${fait} / ${sur}`;
+        taskLabel.textContent = `${titre} ${fait} / ${sur}`;
       },
       shouldCancel: () => taskCancelled,
     });

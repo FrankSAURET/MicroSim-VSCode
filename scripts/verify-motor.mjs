@@ -12,7 +12,7 @@
 //      fréquence de passage de dent LISIBLE (1 à 3,5 dents par seconde) qui
 //      croît avec la tension — l'accélération doit se voir, pas le vrai régime.
 import esbuild from 'esbuild';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -822,6 +822,26 @@ console.log('PWM par la broche, sans transistor :');
   const vraiDefaut = state(direct(0.7));
   check('sans hachage, une tension trop faible reste signalée (weak)',
     vraiDefaut.fault === 'weak', `fault=${vraiDefaut.fault}`);
+}
+
+// --- 6. Le défaut PART quand il est corrigé ---------------------------------
+// Le modèle rend bien `none` dès que le moteur retrouve sa tension ; encore
+// faut-il que l'AFFICHAGE suive. `reportMotorFaults` ne retirait le cadre rouge
+// que s'il était posé sur un AUTRE composant (`previous !== st.partId`) : un
+// défaut porté par le moteur lui-même — `weak`, `starved` — restait affiché à
+// vie, alors que le moteur tournait de nouveau. C'est le « en permanence » que
+// voyait Frank sur mesure-pico.
+console.log('\nLe défaut s’efface quand il est corrigé :');
+{
+  const sim = readFileSync(join(ROOT, 'src/webview/sim.mts'), 'utf8');
+  const bloc = sim.slice(sim.indexOf('function reportMotorFaults'));
+  const fin = bloc.indexOf('\nfunction ');
+  const corps = fin > 0 ? bloc.slice(0, fin) : bloc;
+  check('le cadre du moteur est retiré dès que le défaut change',
+    /const previous = motorFaultMarks\.get\(st\.partId\);\s*if \(previous !== undefined\) \{/s.test(corps),
+    'la condition previous !== st.partId gardait le cadre à vie');
+  check('un moteur GRILLÉ garde le sien (markBurned, pas le défaut de frame)',
+    /burnedMotors\.has\(previous\)/.test(corps) && /blownDrivers\.has\(previous\)/.test(corps));
 }
 
 console.log(failures === 0 ? 'RESULTAT: OK' : `RESULTAT: ${failures} échec(s)`);
