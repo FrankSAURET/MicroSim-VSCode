@@ -1,6 +1,22 @@
 # À faire
+1. Impossible de copier à partir du texte
 ## ne pas faire pour l'instant
 - Ajouter résistance de puissance
+---
+
+# >>>>  v2026.9.2.67 — Tout ce qui attendait la publication est rattrapé
+
+1. ✅ **Les 18 chaînes en attente sont traduites**, celles que les lots .54 à .66 laissaient volontairement en anglais — la règle des traductions, pas un oubli. Dictionnaire de la webview ([i18n.mts](src/webview/i18n.mts)) : les six libellés `Vce(sat) (V)` / `Vgs(th) (V)` des trois transistors (notations normalisées, elles s'écrivent pareil en français — seule l'unité change de place), les huit libellés du mode texte (« Couleur du texte », « Transparence du fond », « Taille de l'atelier »…), les **cinq noms de police** que `verify:i18n` ne voit pas puisqu'ils passent par `t(f.label)` (« Sans empattement », « Chasse fixe », « Écriture manuscrite »…), et les deux phrases du défaut de saturation du transistor.
+2. ✅ **Dictionnaire de l'extension** ([bundle.l10n.fr.json](l10n/bundle.l10n.fr.json)) : l'infobulle du bouton « T », et celle de l'autoroutage **remplacée** — son libellé anglais a changé au lot .64 (mention du Ctrl + clic), l'ancienne clé ne correspondait donc plus à rien et la traduction ne s'appliquait plus.
+3. ✅ **`verify:i18n` passe au vert** : 11 contrôles, 571 entrées au dictionnaire. C'était le seul banc encore en échec pour cause de traduction.
+4. ✅ **Un seul écart de fond entre `docs/fr/USAGE.md` et sa version anglaise**, relevé par comparaison des enregistrements et non à vue : le paragraphe du mode texte du lot .66 (curseur en T, collage en clair, les cinq réglages). Reporté dans [docs/en/USAGE.md](docs/en/USAGE.md).
+5. ℹ️ **Deux faux positifs écartés, vérifiés un par un** : `nano.md` est bien traduite des deux côtés (l'écart de date vient d'un lot de réorganisation), et le seul changement de `cd4011.md` non reporté est une **correction de genre français** (« le NON-ET » → « la NON-ET »), sans objet en anglais. Les 79 fiches de composants sont complètes dans les deux langues.
+6. ℹ️ **Les 7 composants de la bibliothèque téléchargeable ont déjà leur bloc `fr` complet** ([_sources.json](kablix_components/_sources.json)) — libellé, description, propriétés et libellés d'outil de simulation : rien à rattraper. Les deux README sont alignés (74 composants annoncés des deux côtés).
+7. ✅ **CHANGELOG rattrapé, et c'est le gros du lot.** La section `2026.9.2` ne décrivait que **deux** points alors que **seize lots** (.51 à .66) s'étaient accumulés sous cette étiquette depuis la mise en ligne de la 2026.9.1. Quinze entrées rédigées côté utilisateur à partir du journal : le circuit qui se mesure vraiment (potentiomètre, ventilateur, moteur), les deux natures de transistor passant, la grille en tension, le variateur PWM, les rails multiples et la masse à zéro, les défauts moteur qui accusent la bonne pièce et qui s'effacent, le mode texte, le Ctrl + clic d'autoroutage, l'étiquette des appareils, le multimètre vert, le bandeau de nom, la réouverture de projet et les `.projix` allégés.
+8. ✅ **Date corrigée** : la section portait « 6 septembre 2026 », qui est la date de mise en ligne de la **2026.9.1**. Elle porte celle du jour.
+9. ℹ️ **`version` reste à `2026.9.2`** — c'est la version en attente de mise en ligne, posée depuis le lot .51 ; elle ne bouge qu'au moment MÊME d'une publication. `buildNumber` à 67. **Rien n'a été publié** : `npm run package` et `vsce publish` attendent la demande expresse de Frank.
+10. ⬜ **Reste à l'inventaire** : l'item « impossible de copier à partir du texte » de la liste à faire, hors périmètre de ce lot.
+
 ---
 
 # >>>>  v2026.9.2.66 — L'étiquette prend les couleurs qu'on lui donne

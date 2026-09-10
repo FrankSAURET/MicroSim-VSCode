@@ -468,7 +468,11 @@ const FR: Record<string, string> = {
   'Drain on pin': 'Drain sur la patte',
   'Source on pin': 'Source sur la patte',
   'Current gain (β)': 'Gain en courant (β)',
+  // Vce(sat) et Vgs(th) sont des notations normalisées : elles s'écrivent de la
+  // même façon en français, seule l'unité entre parenthèses reste à sa place.
+  'Vce(sat) (V)': 'Vce(sat) (V)',
   'Rds(on) (Ω)': 'Rds(on) (Ω)',
+  'Vgs(th) (V)': 'Vgs(th) (V)',
   'Marking': 'Inscription',
   'Max Vce (V)': 'Vce max (V)',
   'Max Ic (A)': 'Ic max (A)',
@@ -708,6 +712,29 @@ const FR: Record<string, string> = {
   'Zoom out': 'Zoom arrière',
   'Drag a pin endpoint onto another pin to reconnect it.':
     'Glissez l’extrémité d’un fil sur une autre broche pour la reconnecter.',
+
+  // Étiquettes de texte libre (mode « T »). « Workshop » désigne le réglage de
+  // l'atelier — la valeur héritée quand la propriété n'est pas forcée.
+  'Free text label. Drag it to move it; with the text mode (T) on, click it to edit it.':
+    'Étiquette de texte libre. Glissez-la pour la déplacer ; en mode texte (T), cliquez-la pour la modifier.',
+  'Text color': 'Couleur du texte',
+  'Background color': 'Couleur du fond',
+  'Background opacity': 'Transparence du fond',
+  'Text size': 'Taille du texte',
+  'Workshop size': "Taille de l'atelier",
+  'Font': 'Police',
+  'Workshop font': "Police de l'atelier",
+  'Sans serif': 'Sans empattement',
+  'Serif': 'Avec empattement',
+  'Monospace': 'Chasse fixe',
+  'Handwriting': 'Écriture manuscrite',
+  'Delete this label': 'Supprimer cette étiquette',
+
+  // Défaut de commande : le transistor sature avant de passer le courant demandé.
+  'The driving transistor cannot pass enough current':
+    'Le transistor de commande ne peut pas passer assez de courant',
+  'This transistor saturates: it only passes gain × base current, less than the motor draws, so the motor stays stalled. Lower the base resistor to drive more base current, or use a transistor with more gain.':
+    'Ce transistor sature : il ne passe que gain × courant de base, moins que ce que le moteur demande, donc le moteur reste bloqué. Baissez la résistance de base pour envoyer plus de courant de base, ou prenez un transistor de plus grand gain.',
 };
 
 const DICTS: Record<string, Record<string, string>> = { fr: FR };
