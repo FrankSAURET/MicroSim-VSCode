@@ -1,8 +1,8 @@
 {
   "name": "kablix",
   "displayName": "Kablix",
-  "version": "2026.9.2",
-  "buildNumber": 67,
+  "version": "2026.9.3",
+  "buildNumber": 68,
   "description": "%kablix.description%",
   "publisher": "electropol-fr",
   "author": {

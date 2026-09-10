@@ -4,6 +4,16 @@
 - Ajouter résistance de puissance
 ---
 
+# >>>>  v2026.9.3.68 — La 2026.9.2 était en ligne, le journal le dit maintenant
+
+1. ✅ **Correction d'une erreur du lot précédent** : la 2026.9.2 **est publiée**, contrairement à ce que disaient `package.json`, `CLAUDE.md` et le point 9 du lot .67. La version en attente passe donc à **`2026.9.3`**, `buildNumber` à 68. Même mois, l'incrément avance d'un cran sans repartir à zéro.
+2. ✅ **Le CHANGELOG est recoupé en deux**, et la coupure est établie par l'historique, pas au jugé : les deux points « poster de brochage de l'Uno » et « fenêtre de sortie » viennent des lots **.47 et .48**, écrits au journal par le lot .50 « publication préparée ». Ils sont donc bien le contenu de la **2026.9.2 déjà en ligne** — ils reprennent leur section, à sa date du 6 septembre 2026.
+3. ✅ **Les quinze entrées rédigées au lot .67 passent en `2026.9.3`** : elles couvrent les lots **.51 à .67**, tous postérieurs à la mise en ligne de la 2026.9.2. Les deux points de la 2026.9.2 sont retirés de cette section, où ils faisaient doublon.
+4. ✅ **`CLAUDE.md` remis d'aplomb** : l'exception de version dit maintenant « `2026.9.3` en attente, dernière en ligne `2026.9.2`, publiée le 6 septembre 2026 ».
+5. ℹ️ **Rien n'est publié** — `npm run package` et `vsce publish` attendent toujours la demande expresse de Frank.
+
+---
+
 # >>>>  v2026.9.2.67 — Tout ce qui attendait la publication est rattrapé
 
 1. ✅ **Les 18 chaînes en attente sont traduites**, celles que les lots .54 à .66 laissaient volontairement en anglais — la règle des traductions, pas un oubli. Dictionnaire de la webview ([i18n.mts](src/webview/i18n.mts)) : les six libellés `Vce(sat) (V)` / `Vgs(th) (V)` des trois transistors (notations normalisées, elles s'écrivent pareil en français — seule l'unité change de place), les huit libellés du mode texte (« Couleur du texte », « Transparence du fond », « Taille de l'atelier »…), les **cinq noms de police** que `verify:i18n` ne voit pas puisqu'ils passent par `t(f.label)` (« Sans empattement », « Chasse fixe », « Écriture manuscrite »…), et les deux phrases du défaut de saturation du transistor.
