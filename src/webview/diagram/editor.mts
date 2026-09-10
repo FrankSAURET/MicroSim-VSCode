@@ -54,7 +54,7 @@ import { shieldSignalTarget } from './shield.mjs';
 import { internalWiringSvg, type PinPoint } from './internal-wiring.mjs';
 import { hasPinout, pinoutPoster, loadPinoutSvg } from './pinout.mjs';
 import { boardSize } from '../composants/pico-board.mjs';
-import { buildNets, nameEquipotentials, type Diagram, type Endpoint, type Part, type Wire } from './model.mjs';
+import { buildNets, nameEquipotentials, type Diagram, type Endpoint, type Part, type TextNote, type Wire } from './model.mjs';
 import { DEFAULT_WIRE_COLORS, DUPONT_COLORS, dupontHex, roundedWirePath, snapPoint, type XY } from './geometry.mjs';
 import { startAutoPan, type AutoPan } from './autopan.mjs';
 import { installerListeCrantee } from './liste-crantee.mjs';
@@ -84,7 +84,11 @@ interface PendingWire {
   downAt: XY;
 }
 
-type Selection = { kind: 'part'; id: string } | { kind: 'wire'; id: string } | null;
+type Selection =
+  | { kind: 'part'; id: string }
+  | { kind: 'wire'; id: string }
+  | { kind: 'text'; id: string }
+  | null;
 
 export type PaletteSort = 'category' | 'alpha';
 
@@ -172,6 +176,16 @@ const SHEET_W = 4000;
 const SHEET_H = 3000;
 /** Aligne une coordonnée sur la grille magnétique. */
 const snapToGrid = (v: number): number => Math.round(v / GRID) * GRID;
+/** Étiquettes de texte libres — couleurs et gabarit choisis par Frank. Repris à
+ *  l'identique par le CSS (`.text-note`) et par l'export SVG, qui ne partage pas
+ *  la feuille de style : les deux doivent rendre la MÊME étiquette. */
+const TEXT_NOTE_INK = '#100ae5';
+const TEXT_NOTE_BG = 'rgba(255, 225, 0, 0.404)'; // #ffe10067
+const TEXT_NOTE_SIZE = 11.2; // 0.7rem à 16 px de base, comme le bandeau de nom
+const TEXT_NOTE_PAD = 4;
+/** Échappe un texte destiné à un nœud XML (export SVG). */
+const escapeXmlText = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 /**
  * Cale l'origine d'un composant sur UN axe pour que son DESSIN reste sur la
  * feuille. `v` = origine (`part.x` ou `part.y`), `d` = ce que le dessin dépasse
@@ -317,6 +331,8 @@ export class Editor {
   onSelectionChange: ((info: { partId: string | null; schema: boolean; shown: boolean }) => void) | null = null;
   /** Appelé quand une action d'ÉDITION est tentée pendant la simulation (verrouillé). */
   onBlockedEdit: (() => void) | null = null;
+  /** Appelé quand le mode texte s'active ou se quitte (état du bouton T). */
+  onTextModeChange: ((on: boolean) => void) | null = null;
   /**
    * Écriture du presse-papier SYSTÈME par l'hôte VS Code (repli). L'API
    * `navigator.clipboard` d'une webview peut être refusée (focus, permission) :
@@ -387,6 +403,15 @@ export class Editor {
    *  z, plus loin dans le DOM) passait encore devant son étiquette
    *  (relais-pico, retour de Frank). L'étiquette sort donc de `.part`. */
   private faultLayer!: HTMLDivElement;
+  /** Couche des étiquettes de texte libres, AU PREMIER PLAN du dessin : une
+   *  annotation se lit par-dessus le montage, jamais dessous (demande de Frank).
+   *  Elle reste sous la couche des défauts, qui doit rester lisible en toutes
+   *  circonstances. */
+  private textLayer!: HTMLDivElement;
+  /** Bloc DOM de chaque étiquette, par identifiant. */
+  private textNodes = new Map<string, HTMLDivElement>();
+  /** Mode texte (bouton T de la barre) : un clic sur le fond pose une étiquette. */
+  private textMode = false;
   private selection: Selection = null;
   /** Composants sélectionnés (sélection multiple : marquee, Ctrl+clic). */
   private selectedParts = new Set<string>();
@@ -480,6 +505,10 @@ export class Editor {
     this.pinHoistLayer = document.createElement('div');
     this.pinHoistLayer.className = 'pin-hoist-layer';
     this.world.appendChild(this.pinHoistLayer);
+    // Couche des étiquettes de texte : au-dessus des composants et des fils.
+    this.textLayer = document.createElement('div');
+    this.textLayer.className = 'text-layer';
+    this.world.appendChild(this.textLayer);
     // Couche des explications de défaut : posée EN DERNIER dans le monde, elle
     // couvre tout le reste quoi qu'il arrive (cf. setFaultNote).
     this.faultLayer = document.createElement('div');
@@ -491,6 +520,13 @@ export class Editor {
     this.buildZoomBadge();
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('keydown', this.onKeyDown);
+    // Sortie du mode texte : tout clic AILLEURS que sur le fond de la feuille,
+    // une étiquette ou le bouton T le quitte (composant, fil, palette, barre
+    // d'outils, inspecteur). En capture, pour trancher AVANT que la cible ne
+    // traite le clic.
+    window.addEventListener('pointerdown', this.onTextModeOutside, true);
+    // Kablix perd le focus (autre onglet, autre fenêtre) : le mode se referme.
+    window.addEventListener('blur', this.exitTextModeOnBlur);
     // Le clic droit sert au déplacement des composants : pas de menu contextuel.
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // Toucher la feuille REND LE CLAVIER à l'éditeur (v2026.8.70). L'appui sur
@@ -518,6 +554,13 @@ export class Editor {
     this.canvas.addEventListener('pointerdown', (e) => {
       if (e.target !== this.canvas && e.target !== this.world && e.target !== this.svg) return;
       if (this.locked) return; // simulation : pas d'édition
+      // Mode texte : le clic sur le fond POSE une étiquette et ouvre sa saisie,
+      // au lieu de démarrer un rectangle de sélection.
+      if (this.textMode && !this.pending && e.button === 0) {
+        e.preventDefault();
+        this.addTextAt(this.canvasPoint(e.clientX, e.clientY));
+        return;
+      }
       if (this.pending) {
         this.addPendingPoint(this.canvasPoint(e.clientX, e.clientY));
       } else if (e.button === 0) {
@@ -578,6 +621,7 @@ export class Editor {
     this.locked = locked;
     if (locked) {
       this.cancelPending();
+      this.exitTextMode(); // une annotation ne se saisit pas pendant la simulation
       this.select(null);
     }
     this.canvas.classList.toggle('canvas--locked', locked);
@@ -685,7 +729,7 @@ export class Editor {
     if (!state) return;
     this.restoring = true;
     try {
-      this.loadDiagram(JSON.parse(state) as { parts?: Part[]; wires?: Wire[] });
+      this.loadDiagram(JSON.parse(state) as { parts?: Part[]; wires?: Wire[]; texts?: TextNote[] });
     } finally {
       this.restoring = false;
     }
@@ -2165,18 +2209,33 @@ export class Editor {
     this.wireCaps.clear();
     for (const r of this.rendered.values()) r.container.remove();
     this.rendered.clear();
+    for (const n of this.textNodes.values()) n.remove();
+    this.textNodes.clear();
     this.internalShown.clear();
     this.pinoutShown.clear();
     this.selectedParts.clear();
     this.diagram.parts = [];
     this.diagram.wires = [];
+    this.diagram.texts = [];
     this.colorIndex = 0;
     this.notify();
   }
 
-  /** Copie sérialisable du schéma (composants + fils) pour la sauvegarde. */
-  serialize(): { parts: Part[]; wires: Wire[]; camera: { zoom: number; panX: number; panY: number } } {
-    const d = JSON.parse(JSON.stringify(this.diagram)) as { parts: Part[]; wires: Wire[] };
+  /** Copie sérialisable du schéma (composants + fils + étiquettes) pour la sauvegarde. */
+  serialize(): {
+    parts: Part[];
+    wires: Wire[];
+    texts?: TextNote[];
+    camera: { zoom: number; panX: number; panY: number };
+  } {
+    const d = JSON.parse(JSON.stringify(this.diagram)) as {
+      parts: Part[];
+      wires: Wire[];
+      texts?: TextNote[];
+    };
+    // Aucune étiquette : le champ ne part pas dans le fichier (un .projix de
+    // schéma sans annotation reste identique à ce qu'il était avant).
+    if (!d.texts?.length) delete d.texts;
     // Caméra (zoom + position de la page) jointe au schéma : elle est ainsi
     // enregistrée dans le .projix et restaurée à la réouverture.
     return { ...d, camera: this.getCamera() };
@@ -2190,6 +2249,7 @@ export class Editor {
   loadDiagram(data: {
     parts?: Part[];
     wires?: Wire[];
+    texts?: TextNote[];
     camera?: { zoom?: number; panX?: number; panY?: number } | null;
   }): void {
     this.clear();
@@ -2246,6 +2306,19 @@ export class Editor {
       // Les fils implicites d'enfichage (auto) ne sont jamais tracés : sinon ils
       // apparaissaient comme des fils parasites après une sauvegarde/réouverture.
       if (!nw.auto) this.drawWire(nw);
+    }
+    // Étiquettes de texte : identifiants régénérés comme le reste, elles ne
+    // référencent rien et rien ne les référence.
+    for (const n of data.texts ?? []) {
+      if (typeof n?.text !== 'string') continue;
+      const note: TextNote = {
+        id: uid('t-'),
+        x: Number(n.x) || 0,
+        y: Number(n.y) || 0,
+        text: n.text,
+      };
+      (this.diagram.texts ??= []).push(note);
+      this.renderText(note);
     }
     this.redrawWires();
     this.scheduleSettle();
@@ -3321,12 +3394,15 @@ export class Editor {
     }
     if (e.key === 'Escape') {
       this.cancelPending();
+      this.exitTextMode();
       this.select(null);
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
       // Retour arrière : sans ça, la webview pourrait encore l'entendre comme un
       // « page précédente » de navigateur.
       e.preventDefault();
-      if (this.selectedParts.size > 0) {
+      if (this.selection?.kind === 'text') {
+        this.removeText(this.selection.id);
+      } else if (this.selectedParts.size > 0) {
         // Lot MIXTE (rectangle de sélection) : les câbles pris dans la boîte
         // partent avec les composants. Les traiter d'abord évite de courir après
         // ceux que `removePart` a déjà emportés (fils branchés sur le composant).
@@ -4932,6 +5008,15 @@ export class Editor {
     this.selectedParts = sel?.kind === 'part' ? new Set([sel.id]) : new Set();
     this.clearHandles();
     this.setPartHighlight();
+    // Étiquettes : cadre de sélection sur celle qui est retenue, et la saisie de
+    // celle qu'on quitte est refermée (son texte est validé au passage).
+    for (const [id, node] of this.textNodes) {
+      const on = sel?.kind === 'text' && sel.id === id;
+      node.classList.toggle('text-note--selected', on);
+      if (on) continue;
+      const body = node.querySelector('.text-note__body') as HTMLElement | null;
+      if (body?.contentEditable === 'true') body.blur();
+    }
 
     if (sel?.kind === 'part') {
       if (this.internalShown.has(sel.id)) this.renderInternalWiring(sel.id);
@@ -5420,6 +5505,14 @@ export class Editor {
    * coller les composants dans un AUTRE atelier Kablix (cf. clipboard.mts).
    */
   copySelection(): void {
+    // Étiquette de texte sélectionnée : c'est son TEXTE qui part au presse-papier
+    // système, pas un morceau de schéma. Il se recolle donc partout — dans une
+    // autre étiquette, dans le code, dans un traitement de texte.
+    if (this.selection?.kind === 'text') {
+      const note = this.diagram.texts?.find((n) => n.id === this.selection!.id);
+      if (note) void this.copyPlainText(note.text);
+      return;
+    }
     if (this.selectedParts.size === 0) return;
     const ids = new Set(this.selectedParts);
     const parts = this.diagram.parts.filter((p) => ids.has(p.id));
@@ -5571,6 +5664,19 @@ export class Editor {
     // Dernier recours : c'est l'extension qui écrit le presse-papier système —
     // sans quoi la copie ne sortirait pas de cette webview.
     this.onClipboardWrite?.(svg);
+  }
+
+  /** Écrit du texte brut au presse-papier système, avec le même repli sur
+   *  l'hôte VS Code que la copie d'image (une webview peut se voir refuser
+   *  l'accès au presse-papier). */
+  private async copyPlainText(texte: string): Promise<void> {
+    try {
+      await navigator.clipboard?.writeText(texte);
+      return;
+    } catch {
+      // presse-papier indisponible : repli sur l'extension.
+    }
+    this.onClipboardWrite?.(texte);
   }
 
   // --- Câblage interne (commandé par le bouton ☢ du bandeau) ------------------
@@ -5995,6 +6101,8 @@ export class Editor {
 
     if (this.selection.kind === 'wire') {
       this.renderWireInspector(this.selection.id);
+    } else if (this.selection.kind === 'text') {
+      this.renderTextInspector(this.selection.id);
     } else {
       this.renderPartInspector(this.selection.id);
     }
@@ -6798,6 +6906,246 @@ export class Editor {
     this.onChange?.();
   }
 
+  // --- Étiquettes de texte libres -------------------------------------------
+  // Du texte posé où l'on veut sur la feuille, déplaçable comme un composant
+  // mais SANS broche ni modèle : la simulation ne le voit pas. La saisie ne
+  // s'ouvre qu'en « mode texte » (bouton T) ; hors mode, une étiquette reste
+  // déplaçable et sélectionnable, jamais éditable par mégarde.
+
+  /** Active/bascule le mode texte. Rend l'état effectif (refusé en simulation). */
+  toggleTextMode(on?: boolean): boolean {
+    const want = on ?? !this.textMode;
+    if (want && this.locked) return false; // simulation : pas d'édition
+    if (want === this.textMode) return this.textMode;
+    this.textMode = want;
+    this.canvas.classList.toggle('canvas--text-mode', this.textMode);
+    if (!this.textMode) this.endTextEditing();
+    this.onTextModeChange?.(this.textMode);
+    return this.textMode;
+  }
+
+  isTextMode(): boolean {
+    return this.textMode;
+  }
+
+  /** Quitte le mode texte (clic ailleurs, perte de focus, simulation). */
+  exitTextMode(): void {
+    this.toggleTextMode(false);
+  }
+
+  /** Un clic hors du fond de la feuille et hors étiquette quitte le mode. Le
+   *  bouton T est excepté : c'est LUI qui bascule, il ne doit pas voir le mode
+   *  déjà refermé quand son propre clic arrive. */
+  private onTextModeOutside = (e: PointerEvent): void => {
+    if (!this.textMode) return;
+    const cible = (e.composedPath()[0] ?? e.target) as Element | null;
+    if (!cible) return;
+    if (cible.closest?.('#text-mode')) return;      // le bouton lui-même
+    if (cible.closest?.('.text-note')) return;      // une étiquette (édition/déplacement)
+    // Le fond de la feuille : c'est là qu'on POSE une étiquette, le mode reste.
+    // Le fond de la feuille (`pointer-events: none` sur `.canvas__sheet` : le
+    // clic tombe sur le canvas, le monde ou le SVG des fils) : c'est là qu'on
+    // POSE une étiquette, le mode reste.
+    if (cible === this.canvas || cible === this.world || (cible as unknown) === this.svg) return;
+    this.exitTextMode();
+  };
+
+  private exitTextModeOnBlur = (): void => {
+    if (this.textMode) this.exitTextMode();
+  };
+
+  /** Ferme la saisie en cours : le texte est validé, l'étiquette vide effacée. */
+  private endTextEditing(): void {
+    for (const [id, node] of this.textNodes) {
+      const body = node.querySelector('.text-note__body') as HTMLElement | null;
+      if (!body || body.contentEditable !== 'true') continue;
+      body.contentEditable = 'false';
+      body.blur();
+      this.commitTextNode(id, body);
+    }
+  }
+
+  /** Relit le texte saisi dans le modèle ; une étiquette vidée disparaît. */
+  private commitTextNode(id: string, body: HTMLElement): void {
+    const note = this.diagram.texts?.find((n) => n.id === id);
+    if (!note) return;
+    // innerText et non textContent : il rend les sauts de ligne des <div>/<br>
+    // que contenteditable fabrique, textContent les collerait bout à bout.
+    const texte = body.innerText.replace(/ /g, ' ').replace(/\s+$/, '');
+    if (texte === note.text) return;
+    if (texte.trim() === '') {
+      this.removeText(id);
+      return;
+    }
+    note.text = texte;
+    this.notify();
+  }
+
+  /** Pose une étiquette vide au point donné et ouvre sa saisie. */
+  private addTextAt(at: XY): TextNote {
+    const note: TextNote = {
+      id: uid('t-'),
+      x: snapToGrid(Math.max(0, Math.min(SHEET_W - 20, at.x))),
+      y: snapToGrid(Math.max(0, Math.min(SHEET_H - 20, at.y))),
+      text: '',
+    };
+    (this.diagram.texts ??= []).push(note);
+    this.renderText(note);
+    this.select({ kind: 'text', id: note.id });
+    this.editText(note.id);
+    return note;
+  }
+
+  /** Ajoute une étiquette par programme (chargement, collage, bancs de test). */
+  addText(text: string, x: number, y: number): TextNote {
+    const note: TextNote = { id: uid('t-'), x, y, text };
+    (this.diagram.texts ??= []).push(note);
+    this.renderText(note);
+    this.notify();
+    return note;
+  }
+
+  removeText(id: string): void {
+    const list = this.diagram.texts;
+    if (!list) return;
+    const i = list.findIndex((n) => n.id === id);
+    if (i < 0) return;
+    list.splice(i, 1);
+    this.textNodes.get(id)?.remove();
+    this.textNodes.delete(id);
+    if (this.selection?.kind === 'text' && this.selection.id === id) this.select(null);
+    this.notify();
+  }
+
+  /** Ouvre la saisie d'une étiquette (curseur en fin de texte). */
+  private editText(id: string): void {
+    const node = this.textNodes.get(id);
+    const body = node?.querySelector('.text-note__body') as HTMLElement | null;
+    if (!node || !body) return;
+    body.contentEditable = 'true';
+    node.classList.add('text-note--editing');
+    body.focus();
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  private renderText(note: TextNote): void {
+    const node = document.createElement('div');
+    node.className = 'text-note';
+    node.style.left = `${note.x}px`;
+    node.style.top = `${note.y}px`;
+    const body = document.createElement('div');
+    body.className = 'text-note__body';
+    // La zone s'étend avec le texte : sa largeur est celle du contenu (CSS
+    // `width: max-content`), sa hauteur suit les lignes. Rien à calculer ici.
+    body.textContent = note.text;
+    // Le texte est saisi en clair : ce que colle l'utilisateur ne doit pas
+    // amener de balises (contenteditable colle du HTML par défaut).
+    body.addEventListener('paste', (e: ClipboardEvent) => {
+      e.preventDefault();
+      const brut = e.clipboardData?.getData('text/plain') ?? '';
+      document.execCommand('insertText', false, brut);
+    });
+    body.addEventListener('input', () => this.positionTextCarets(note.id));
+    body.addEventListener('blur', () => {
+      body.contentEditable = 'false';
+      node.classList.remove('text-note--editing');
+      this.commitTextNode(note.id, body);
+    });
+    body.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Échap ferme la saisie sans quitter le mode texte ; Entrée passe à la
+      // ligne (plusieurs lignes autorisées), donc rien à intercepter pour elle.
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        body.blur();
+      }
+    });
+    node.appendChild(body);
+    node.addEventListener('pointerdown', (e) => this.onTextPointerDown(note, node, body, e));
+    this.textLayer.appendChild(node);
+    this.textNodes.set(note.id, node);
+  }
+
+  /** Recale la position mémorisée après une saisie (l'étiquette ne bouge pas,
+   *  mais un ancrage futur — export SVG — lit ces coordonnées). */
+  private positionTextCarets(id: string): void {
+    const node = this.textNodes.get(id);
+    const note = this.diagram.texts?.find((n) => n.id === id);
+    if (!node || !note) return;
+    node.style.left = `${note.x}px`;
+    node.style.top = `${note.y}px`;
+  }
+
+  private onTextPointerDown(
+    note: TextNote,
+    node: HTMLDivElement,
+    body: HTMLElement,
+    e: PointerEvent
+  ): void {
+    if (this.locked) return; // simulation : ni déplacement ni saisie
+    if (body.contentEditable === 'true') {
+      // Saisie ouverte : le clic place le curseur dans le texte, il ne doit
+      // surtout pas démarrer un déplacement.
+      e.stopPropagation();
+      return;
+    }
+    if (e.button !== 0 && e.button !== 2) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.select({ kind: 'text', id: note.id });
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const ox = note.x;
+    const oy = note.y;
+    let moved = false;
+    const release = this.capturePointer(e);
+
+    const move = (ev: PointerEvent): void => {
+      const dx = (ev.clientX - startX) / this.zoom;
+      const dy = (ev.clientY - startY) / this.zoom;
+      if (!moved && Math.hypot(dx * this.zoom, dy * this.zoom) < DRAG_THRESHOLD) return;
+      moved = true;
+      // Même grille magnétique que les composants : une annotation s'aligne sur
+      // le montage qu'elle commente.
+      note.x = Math.max(0, Math.min(SHEET_W - 20, snapToGrid(ox + dx)));
+      note.y = Math.max(0, Math.min(SHEET_H - 20, snapToGrid(oy + dy)));
+      node.style.left = `${note.x}px`;
+      node.style.top = `${note.y}px`;
+    };
+
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      release();
+      if (moved) {
+        this.notify();
+      } else if (this.textMode) {
+        // Clic simple EN MODE TEXTE : on édite. Hors mode, le clic sélectionne
+        // seulement — pas de saisie ouverte par mégarde sur un schéma qu'on lit.
+        this.editText(note.id);
+      }
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  /** Inspecteur d'une étiquette : rappel du geste + suppression. */
+  private renderTextInspector(id: string): void {
+    const note = this.diagram.texts?.find((n) => n.id === id);
+    if (!note) return;
+    const hint = document.createElement('p');
+    hint.className = 'inspector__hint';
+    hint.textContent = t('Free text label. Drag it to move it; with the text mode (T) on, click it to edit it.');
+    this.inspector.appendChild(hint);
+    this.appendDeleteButton(t('Delete this label'), () => this.removeText(id));
+  }
+
   // --- Export SVG ----------------------------------------------------------------
   /**
    * Sérialise le schéma en SVG autonome. Chaque composant est extrait de son
@@ -7037,6 +7385,40 @@ export class Editor {
       );
     }
 
+    // Étiquettes de texte : dessinées EN DERNIER, donc au premier plan, comme à
+    // l'écran. Un export de sélection n'en emporte aucune (elles ne sont pas
+    // sélectionnables avec les composants). La boîte est mesurée à l'écran :
+    // c'est la seule source de vérité pour un texte dont la largeur dépend de la
+    // police réellement rendue.
+    const notes: string[] = [];
+    if (!only) {
+      for (const note of this.diagram.texts ?? []) {
+        const node = this.textNodes.get(note.id);
+        if (!node || !note.text) continue;
+        const rect = node.getBoundingClientRect();
+        const w = rect.width / this.zoom;
+        const h = rect.height / this.zoom;
+        grow(note.x, note.y);
+        grow(note.x + w, note.y + h);
+        const lignes = note.text.split('\n');
+        // Interligne pris sur le rendu réel (hauteur totale / nombre de lignes),
+        // sinon un texte multi-lignes s'exporte tassé ou espacé.
+        const lh = h / Math.max(1, lignes.length);
+        const tspans = lignes
+          .map((l, i) =>
+            `<tspan x="${note.x + TEXT_NOTE_PAD}" y="${note.y + lh * (i + 0.78)}">` +
+            `${escapeXmlText(l)}</tspan>`
+          )
+          .join('');
+        notes.push(
+          `<g><rect x="${note.x}" y="${note.y}" width="${w}" height="${h}" rx="4" ` +
+            `fill="${TEXT_NOTE_BG}"/>` +
+            `<text font-family="sans-serif" font-size="${TEXT_NOTE_SIZE}" ` +
+            `fill="${TEXT_NOTE_INK}" xml:space="preserve">${tspans}</text></g>`
+        );
+      }
+    }
+
     // Atelier vide : cadre par défaut plutôt qu'un viewBox dégénéré.
     if (!isFinite(minX)) {
       minX = 0;
@@ -7061,6 +7443,7 @@ export class Editor {
       ...(rootDefs ? [rootDefs] : []),
       ...parts,
       ...wires,
+      ...notes,
       `</svg>`,
     ].join('\n');
   }

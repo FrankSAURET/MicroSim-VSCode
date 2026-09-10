@@ -4199,6 +4199,27 @@ document.getElementById('brand')?.addEventListener('click', () => {
 document.getElementById('rearrange-layout')?.addEventListener('click', () => {
   vscode.postMessage({ type: 'menuCommand', command: 'kablix.rearrangeLayout' });
 });
+// Mode texte (icône T, entre « réarranger » et le hamburger) : un clic sur la
+// feuille pose une étiquette de texte libre. On en sort en recliquant l'icône,
+// en cliquant n'importe où ailleurs, ou quand Kablix perd le focus — ces deux
+// dernières sorties sont pilotées par l'éditeur, qui nous rend la main par
+// `onTextModeChange` pour tenir le bouton à jour.
+const textModeBtn = document.getElementById('text-mode') as HTMLButtonElement | null;
+if (textModeBtn) {
+  editor.onTextModeChange = (on) => {
+    textModeBtn.classList.toggle('is-on', on);
+    textModeBtn.setAttribute('aria-pressed', String(on));
+  };
+  textModeBtn.addEventListener('click', () => {
+    // En simulation, l'éditeur refuse d'entrer en mode texte : on le dit comme
+    // pour toute autre tentative d'édition (clignotement du bandeau).
+    if (editor.isLocked() && !editor.isTextMode()) {
+      editor.onBlockedEdit?.();
+      return;
+    }
+    editor.toggleTextMode();
+  });
+}
 
 // Heure de build (injectée par esbuild) affichée sous la version : repère visuel
 // pendant les tests F5 pour confirmer qu'on exécute bien le dernier build.

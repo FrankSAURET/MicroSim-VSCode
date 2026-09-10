@@ -89,6 +89,15 @@ textarea {
   display: block;
 }
 
+/* Bouton à icône ENFONCÉ (mode texte actif) : les icônes de la barre n'ont pas
+   de cadre, il faut donc que l'état se voie autrement — fond appuyé et léger
+   creux, comme un interrupteur resté baissé. */
+.toolbar button.toolbar__icon-btn.is-on {
+  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.35));
+  border-radius: 4px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
 .toolbar select {
   font: inherit;
   color: var(--vscode-dropdown-foreground, #fff);
@@ -1779,6 +1788,81 @@ body.vscode-light .inspector__ref--nouveau {
   inset: 0;
   pointer-events: none;
   z-index: 80;
+}
+
+/* --- Étiquettes de texte libres (bouton T de la barre) ---------------------
+   Du texte posé où l'on veut sur la feuille : ce n'est pas un composant, la
+   simulation l'ignore. La couche est au PREMIER PLAN du dessin (au-dessus des
+   fils, z=5, et des composants) mais sous les explications de défaut (z=80),
+   qui doivent rester lisibles quoi qu'il arrive. Elle-même ne capte pas les
+   pointeurs : seules les étiquettes le font, sinon elle couvrirait toute la
+   feuille et bloquerait le câblage. */
+.text-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.text-note {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  /* La zone s'étend avec le texte : largeur du contenu, hauteur des lignes. */
+  width: max-content;
+  max-width: 600px;
+  border-radius: 4px;
+  background: #ffe10067;
+  /* Aucune bordure (demande de Frank) : seul le fond jaune délimite la zone. */
+  border: none;
+}
+
+.text-note__body {
+  /* Même police et même taille que le bandeau de nom des composants. */
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: #100ae5;
+  padding: 2px 4px;
+  /* Plusieurs lignes autorisées : les sauts de ligne saisis sont conservés, et
+     un mot trop long est coupé plutôt que de déborder de la zone. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Étiquette VIDE (posée à l'instant, pas encore écrite) : sans hauteur mini
+     elle serait invisible et impossible à viser. */
+  min-width: 12px;
+  min-height: 1.35em;
+}
+
+/* Saisie ouverte : le texte se sélectionne à la souris et le curseur devient
+   celui d'un champ. */
+.text-note--editing {
+  cursor: text;
+}
+
+.text-note--editing .text-note__body {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.text-note--selected {
+  outline: 1px dashed var(--kx-select, #e973e9);
+  outline-offset: 1px;
+}
+
+/* Mode texte actif : le curseur annonce sur toute la feuille qu'un clic va
+   poser une étiquette. */
+.canvas--text-mode {
+  cursor: text;
+}
+
+/* Simulation : les étiquettes restent lisibles mais ne se touchent plus. */
+.canvas--locked .text-note {
+  pointer-events: none;
+  cursor: default;
 }
 
 /* L'explication du défaut, à CÔTÉ du composant encadré : jaune sur rouge, le

@@ -38,6 +38,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
   const hamburgerIconUri = asset('hamburger.svg');
   const grilleIconUri = asset('grille.svg');
   const rearrangerIconUri = asset('rearranger.svg');
+  const texteIconUri = asset('texte.svg');
   const erreurIconUri = asset('erreur.svg');
   // Les cinq animaux du réglage de vitesse, dessinés par Frank dans icones.svg.
   const escargotIconUri = asset('escargot.svg');
@@ -130,6 +131,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
     <button id="export-svg" class="toolbar__icon-btn" title="${l10n.t('Export the diagram as SVG')}"><img src="${svgIconUri}" alt="${l10n.t('Export the diagram as SVG')}" /></button>
     <button id="toggle-labels" title="${l10n.t('Show/hide part names')}">${l10n.t('Names')}</button>
     <button id="rearrange-layout" class="toolbar__icon-btn" title="${l10n.t('Rearrange the windows (code / Kablix)')}"><img src="${rearrangerIconUri}" alt="${l10n.t('Rearrange the windows (code / Kablix)')}" /></button>
+    <button id="text-mode" class="toolbar__icon-btn" aria-pressed="false" title="${l10n.t('Text mode: click the sheet to place a free text label')}"><img src="${texteIconUri}" alt="${l10n.t('Text mode: click the sheet to place a free text label')}" /></button>
     <div class="more-menu" id="more-menu">
       <button id="more-btn" class="toolbar__icon-btn" title="${l10n.t('Other functions')}" aria-haspopup="true" aria-expanded="false" aria-label="${l10n.t('Other functions')}"><img src="${hamburgerIconUri}" alt="${l10n.t('Other functions')}" /></button>
       <ul id="more-list" class="more-menu__list" role="menu" hidden>

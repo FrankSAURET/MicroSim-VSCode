@@ -1,8 +1,23 @@
 # À faire
-1. 
 
 ## ne pas faire pour l'instant
 - Ajouter résistance de puissance
+---
+
+# >>>>  v2026.9.2.65 — Écrire sur la feuille sans poser un composant
+
+1. ✅ **Le générateur d'étiquettes est là** (item 1). Du texte libre posé où l'on veut sur la feuille — titre de montage, remarque, nom d'une zone — déplaçable comme un composant, sur plusieurs lignes, la zone s'étendant avec le texte. Encre **#100ae5** sur fond **#ffe10067** arrondi et sans bordure, police et taille du bandeau de nom des composants, le tout **au premier plan** (couche z=40 : au-dessus des fils et des composants, sous les explications de défaut).
+2. ✅ **Ce n'est PAS un composant**, et le modèle le dit : `TextNote` ([model.mts](src/webview/diagram/model.mts)) n'a ni broche ni modèle électrique. Une étiquette ne pèse pas dans la netlist, la simulation l'ignore complètement, et le champ `texts?` du `Diagram` est **optionnel** : un schéma sans étiquette produit un fichier **identique à avant** (`serialize()` retire le champ quand il est vide), donc aucun `.projix` ancien ne change de forme.
+3. ✅ **Nouveau bouton « T » dans la barre Kablix**, entre *réarranger* et le menu hamburger, comme demandé. L'icône vient du groupe `Texte` de la planche de Frank, extraite par `node scripts/_extract-icon.mjs Texte texte.svg` — [media/texte.svg](media/texte.svg). Le viewBox rendu par l'extraction n'était pas carré (63,65 × 94,87) et le « T » débordait à 16 px ; recadrer sur le seul rectangle **coupait le haut de la lettre** (constaté au rendu Chrome, pas deviné). Corrigé en viewBox carré englobant tout le dessin — la planche de Frank n'a pas été retouchée.
+4. ✅ **Le bouton s'enfonce vraiment** : `onTextModeChange` bascule `.is-on` et `aria-pressed` ([sim.mts](src/webview/sim.mts)), et le style d'état enfoncé est posé dans [styles.css](media/styles.css) (fond de barre actif + ombre intérieure). En simulation le mode est refusé et le clic déclenche le clignotement du bandeau (`onBlockedEdit`), le mécanisme existant — pas un message inventé.
+5. ✅ **On quitte le mode texte par tout ce que Frank a listé** : reclic sur l'icône, Échap, clic sur un composant, un fil, un bouton, la bibliothèque ou l'inspecteur — et **perte de focus de Kablix**. L'écoute est posée sur `window` en phase de **capture** : elle laisse passer le bouton lui-même et les étiquettes, et considère comme « fond de feuille » le canvas / le monde / le SVG des fils.
+6. ✅ **Édition, copier, coller.** La saisie est un `contenteditable` ouvert au clic ; le collage force le **texte brut** (pas de HTML importé du presse-papier), Ctrl+C sur une étiquette sélectionnée copie son texte. Les raccourcis de l'éditeur ne mordent pas pendant la frappe : `isTextEntry()` couvrait déjà `isContentEditable`, rien à ajouter. Une étiquette **vidée de son texte disparaît** d'elle-même, et **Suppr** efface celle qui est sélectionnée.
+7. ✅ **L'export SVG les emporte**, dessinées **en dernier** donc au premier plan, un `<tspan>` par ligne et la boîte mesurée à l'écran pour que le rendu exporté colle à ce qu'on voit.
+8. ✅ **Banc neuf `verify:texte`** ([verify-texte.mjs](scripts/verify-texte.mjs)), dans le vrai éditeur bundlé en Chrome headless : **55 contrôles au vert**. Il couvre la pose au clic, l'extension de la zone en largeur ET en hauteur, les sauts de ligne conservés, le déplacement recollé sur la grille de 10 px, la sélection sans ouverture de saisie hors mode, les cinq sorties de mode, les couleurs et la police exactes, le z-order, l'enregistrement/rechargement, la suppression, le gel en simulation et l'export SVG.
+9. ✅ **`verify:help-bars` a fait son travail** : un bouton neuf dans une barre et non décrit dans l'aide fait tomber ce banc — c'est exactement sa raison d'être. Le mode texte est décrit dans [docs/fr/USAGE.md](docs/fr/USAGE.md) et [docs/en/USAGE.md](docs/en/USAGE.md) (ce fichier-là est tenu ligne à ligne, le banc l'exige), et la ligne `text-mode` est ajoutée à la table du banc. **68 contrôles au vert.**
+10. ⏳ **`verify:i18n`** : trois chaînes neuves sans traduction FR — l'infobulle du bouton (`webview-html.ts`), celle de l'étiquette et « Delete this label » (`editor.mts`) — plus les libellés en attente des lots précédents. La règle, pas un défaut : langue de base écrite au fil de l'eau, dictionnaire FR au lot d'avant publication.
+11. ℹ️ **108 bancs joués, les 106 autres au vert.**
+
 ---
 
 # >>>>  v2026.9.2.64 — Un défaut corrigé doit s'effacer de l'écran

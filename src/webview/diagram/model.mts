@@ -39,9 +39,25 @@ export interface Part {
   flipV?: boolean;
 }
 
+/**
+ * Étiquette libre posée sur la feuille : du texte que l'utilisateur écrit où il
+ * veut (titre de montage, remarque, nom d'une zone). Ce n'est PAS un composant —
+ * elle n'a ni broche ni modèle, elle ne pèse pas dans la netlist et la
+ * simulation l'ignore complètement. Coordonnées monde, comme un composant.
+ */
+export interface TextNote {
+  id: string;
+  x: number;
+  y: number;
+  /** Texte, sauts de ligne compris (plusieurs lignes autorisées). */
+  text: string;
+}
+
 export interface Diagram {
   parts: Part[];
   wires: Wire[];
+  /** Étiquettes de texte libres (absent = aucune, vieux fichiers compris). */
+  texts?: TextNote[];
 }
 
 const key = (e: Endpoint): string => `${e.partId}/${e.pin}`;
