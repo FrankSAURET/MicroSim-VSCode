@@ -1854,9 +1854,15 @@ body.vscode-light .inspector__ref--nouveau {
 }
 
 /* Mode texte actif : le curseur annonce sur toute la feuille qu'un clic va
-   poser une étiquette. */
+   poser une étiquette. Ce n'est pas la barre en I d'un champ de saisie (elle
+   dirait « on écrit ici », alors qu'ici on POSE), mais une flèche marquée d'un
+   T — la lettre du bouton. Le SVG est écrit en clair dans l'URL : pas de fichier
+   à charger, donc pas de curseur par défaut le temps qu'il arrive. Le point
+   actif (0 0) est la pointe de la flèche, là où l'étiquette se posera. */
 .canvas--text-mode {
-  cursor: text;
+  cursor:
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M2 1 L2 16 L6 12.5 L8.5 18.5 L11 17.5 L8.5 11.8 L13.5 11.5 Z" fill="white" stroke="black" stroke-width="1.2" stroke-linejoin="round"/><text x="14" y="22" font-family="serif" font-size="14" font-weight="bold" fill="%23100ae5" stroke="white" stroke-width="2.5" paint-order="stroke">T</text></svg>') 2 1,
+    text;
 }
 
 /* Simulation : les étiquettes restent lisibles mais ne se touchent plus. */

@@ -319,6 +319,176 @@ async function run() {
 	ok('et elle est dessinée au premier plan (après les composants)', iNote > iPart,
 		'note à ' + iNote + ', composants à ' + iPart);
 
+	// --- 11. COLLER du texte dans une étiquette (v2026.9.2.66) --------------------
+	// Frank : « Impossible de coller du texte dans la zone. » Deux chemins mènent
+	// au collage — l'événement 'paste' natif, et Ctrl+V lu depuis le
+	// presse-papier système quand la webview a intercepté le raccourci. Les deux
+	// doivent poser du TEXTE BRUT à la position du curseur.
+	editor.toggleTextMode(true);
+	clicFond(600, 500);
+	await wait(40);
+	const nP = notes()[0];
+	tape(nP, 'Debut ');
+	// Curseur EN FIN de texte, comme après une frappe.
+	const finDe = (b) => {
+		const r = document.createRange();
+		r.selectNodeContents(b);
+		r.collapse(false);
+		const s = window.getSelection();
+		s.removeAllRanges();
+		s.addRange(r);
+	};
+	finDe(corps(nP));
+	const dt = new DataTransfer();
+	dt.setData('text/plain', 'colle');
+	corps(nP).dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+	await wait(30);
+	ok('un collage insère le texte à la position du curseur',
+		corps(nP).innerText === 'Debut colle', JSON.stringify(corps(nP).innerText));
+	// Collage de HTML : seul le texte brut doit entrer, aucune balise.
+	const dt2 = new DataTransfer();
+	dt2.setData('text/plain', ' brut');
+	dt2.setData('text/html', '<b style="color:red"> brut</b>');
+	corps(nP).dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt2 }));
+	await wait(30);
+	ok('et il n emporte AUCUNE balise du presse-papier',
+		!corps(nP).innerHTML.includes('<b') && corps(nP).innerText === 'Debut colle brut',
+		corps(nP).innerHTML.slice(0, 80));
+	// Texte sur plusieurs lignes : les sauts de ligne survivent au collage.
+	const dt3 = new DataTransfer();
+	dt3.setData('text/plain', '\\nligne 2');
+	corps(nP).dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt3 }));
+	await wait(30);
+	ok('un texte multi-lignes se colle sur plusieurs lignes',
+		corps(nP).innerText.split('\\n').length === 2, JSON.stringify(corps(nP).innerText));
+	corps(nP).dispatchEvent(new FocusEvent('blur'));
+	await wait(30);
+	ok('le texte collé est bien enregistré dans le modèle',
+		editor.diagram.texts.some((n) => n.text.includes('Debut colle brut')),
+		JSON.stringify(editor.diagram.texts.map((n) => n.text)));
+
+	// Chemin Ctrl+V : la webview intercepte 'paste', l'éditeur lit alors le
+	// presse-papier système lui-même. On le simule via onClipboardRead (le repli
+	// que l'éditeur utilise quand navigator.clipboard est refusé).
+	const nq = notes().find((n) => corps(n).innerText.startsWith('Debut'));
+	editor.toggleTextMode(true);
+	const bq = nq.getBoundingClientRect();
+	nq.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true,
+		button: 0, clientX: bq.left + 5, clientY: bq.top + 5 }));
+	window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
+	await wait(40);
+	corps(nq).focus();
+	finDe(corps(nq));
+	// En headless, navigator.clipboard.readText() peut répondre (vide) avant le
+	// repli : on le neutralise pour tester le chemin de l'hôte, celui qui sert
+	// réellement dans la webview VS Code.
+	try { Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); } catch (e) { void e; }
+	editor.onClipboardRead = async () => ' via Ctrl+V';
+	window.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
+	await wait(120);
+	ok('Ctrl+V colle aussi quand l événement paste n arrive pas',
+		corps(nq).innerText.includes('via Ctrl+V'), JSON.stringify(corps(nq).innerText));
+	ok('et le texte collé par Ctrl+V est enregistré',
+		editor.diagram.texts.some((n) => n.text.includes('via Ctrl+V')),
+		JSON.stringify(editor.diagram.texts.map((n) => n.text)));
+	// Un SCHÉMA copié depuis Kablix n'est pas du texte d'étiquette : il ne doit
+	// pas se déverser dans l'annotation.
+	const avant = corps(nq).innerText;
+	// Forme exacte du presse-papier Kablix : « TAG:{json} » (cf. clipboard.mts).
+	editor.onClipboardRead = async () => 'KABLIX-CLIPBOARD-V1:' + JSON.stringify({
+		kablix: 'KABLIX-CLIPBOARD-V1', parts: [{ id: 'R9', type: 'resistor', x: 10, y: 10 }], wires: [] });
+	finDe(corps(nq));
+	window.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
+	await wait(120);
+	ok('un schéma copié ne se colle PAS dans une étiquette',
+		corps(nq).innerText === avant, JSON.stringify(corps(nq).innerText));
+	corps(nq).dispatchEvent(new FocusEvent('blur'));
+	editor.toggleTextMode(false);
+	await wait(30);
+
+	// --- 12. Propriétés : couleur, fond, transparence, taille, police -------------
+	const idQ = editor.diagram.texts.find((n) => n.text.includes('Debut colle')).id;
+	editor.select({ kind: 'text', id: idQ });
+	await wait(40);
+	const insp = document.getElementById('inspector');
+	const listes = [...insp.querySelectorAll('select')];
+	ok('l inspecteur d une étiquette offre les nuanciers encre et fond',
+		insp.querySelectorAll('.inspector__swatches').length === 2,
+		insp.querySelectorAll('.inspector__swatches').length);
+	ok('un curseur de transparence du fond', !!insp.querySelector('input[type=range]'));
+	ok('une liste de tailles et une liste de polices', listes.length === 2, listes.length);
+
+	const noeud = notes().find((n) => corps(n).innerText.startsWith('Debut'));
+	editor.setTextStyle(idQ, { color: '#c00000' });
+	await wait(20);
+	ok('la couleur du texte se change', getComputedStyle(corps(noeud)).color === 'rgb(192, 0, 0)',
+		getComputedStyle(corps(noeud)).color);
+	editor.setTextStyle(idQ, { bg: '#000000', bgAlpha: 100 });
+	await wait(20);
+	ok('la couleur du fond aussi', getComputedStyle(noeud).backgroundColor === 'rgb(0, 0, 0)',
+		getComputedStyle(noeud).backgroundColor);
+	editor.setTextStyle(idQ, { bgAlpha: 0 });
+	await wait(20);
+	ok('et la transparence du fond va jusqu à l invisible',
+		/rgba\\(0, ?0, ?0, ?0\\)/.test(getComputedStyle(noeud).backgroundColor),
+		getComputedStyle(noeud).backgroundColor);
+	const tailleAvant = parseFloat(getComputedStyle(corps(noeud)).fontSize);
+	editor.setTextStyle(idQ, { size: 24 });
+	await wait(20);
+	ok('la taille du texte se change', parseFloat(getComputedStyle(corps(noeud)).fontSize) === 24,
+		getComputedStyle(corps(noeud)).fontSize);
+	const policeAvant = getComputedStyle(corps(noeud)).fontFamily;
+	editor.setTextStyle(idQ, { font: 'monospace' });
+	await wait(20);
+	ok('la police se change', getComputedStyle(corps(noeud)).fontFamily === 'monospace',
+		getComputedStyle(corps(noeud)).fontFamily);
+	// Valeur d'origine : le réglage effacé rend la main au CSS de l'atelier.
+	editor.clearTextStyle(idQ, 'size');
+	editor.clearTextStyle(idQ, 'font');
+	await wait(20);
+	ok('un réglage effacé revient à la valeur de l atelier',
+		parseFloat(getComputedStyle(corps(noeud)).fontSize) === tailleAvant
+		&& getComputedStyle(corps(noeud)).fontFamily === policeAvant,
+		getComputedStyle(corps(noeud)).fontSize + ' / ' + getComputedStyle(corps(noeud)).fontFamily);
+	// Une valeur aberrante venue d'un fichier est ignorée, pas gravée.
+	editor.setTextStyle(idQ, { color: 'rouge', size: 999 });
+	await wait(20);
+	const noteQ = editor.diagram.texts.find((n) => n.id === idQ);
+	ok('une valeur de style invalide est refusée',
+		noteQ.color === '#c00000' && noteQ.size === undefined,
+		noteQ.color + ' / ' + noteQ.size);
+
+	// Enregistrement : le style suit l'étiquette dans le fichier.
+	editor.setTextStyle(idQ, { size: 20, font: 'serif' });
+	await wait(20);
+	const dumpS = editor.serialize();
+	const noteS = dumpS.texts.find((n) => n.text.includes('Debut colle'));
+	ok('le style part dans le fichier', noteS.color === '#c00000' && noteS.bg === '#000000'
+		&& noteS.bgAlpha === 0 && noteS.size === 20 && noteS.font === 'serif',
+		JSON.stringify(noteS));
+	editor.loadDiagram(JSON.parse(JSON.stringify(dumpS)));
+	await wait(120);
+	const relu = editor.diagram.texts.find((n) => n.text.includes('Debut colle'));
+	ok('et il revient au rechargement', relu.color === '#c00000' && relu.bgAlpha === 0
+		&& relu.size === 20 && relu.font === 'serif', JSON.stringify(relu));
+	const noeudR = notes().find((n) => corps(n).innerText.startsWith('Debut'));
+	ok('avec le rendu qui va avec', parseFloat(getComputedStyle(corps(noeudR)).fontSize) === 20
+		&& getComputedStyle(corps(noeudR)).color === 'rgb(192, 0, 0)',
+		getComputedStyle(corps(noeudR)).fontSize + ' / ' + getComputedStyle(corps(noeudR)).color);
+	// L'export SVG rend les MÊMES réglages que l'écran.
+	const svg2 = editor.exportSvg();
+	ok('l export SVG emporte les réglages de l étiquette',
+		svg2.includes('#c00000') && svg2.includes('font-size="20"') && svg2.includes('serif'),
+		svg2.slice(svg2.indexOf('Debut colle') - 200, svg2.indexOf('Debut colle')).slice(-160));
+
+	// --- 13. Le curseur du mode texte porte un T ---------------------------------
+	editor.toggleTextMode(true);
+	await wait(20);
+	const curseur = getComputedStyle(canvas).cursor;
+	ok('en mode texte, le curseur est une flèche marquée d un T',
+		curseur.includes('url(') && curseur.includes('svg'), curseur.slice(0, 60));
+	editor.toggleTextMode(false);
+
 	const out = document.createElement('pre');
 	out.id = 'measures';
 	out.textContent = JSON.stringify(checks);

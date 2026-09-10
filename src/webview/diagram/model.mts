@@ -51,7 +51,27 @@ export interface TextNote {
   y: number;
   /** Texte, sauts de ligne compris (plusieurs lignes autorisées). */
   text: string;
+  /** Couleur de l'encre (#rrggbb). Absent = valeur par défaut (#100ae5). */
+  color?: string;
+  /** Couleur du fond (#rrggbb), sans sa transparence. Absent = #ffe100. */
+  bg?: string;
+  /** Opacité du fond, 0 (invisible) à 100 (plein). Absent = 40. */
+  bgAlpha?: number;
+  /** Taille du texte en pixels. Absent = 11 (taille du bandeau de nom). */
+  size?: number;
+  /** Police. Absent = celle de l'atelier. */
+  font?: string;
 }
+
+/** Valeurs d'origine d'une étiquette : ce qu'on obtient en la posant, et ce que
+ *  rendent le dessin et l'export quand le champ n'est pas gravé. */
+export const TEXT_NOTE_DEFAULTS = {
+  color: '#100ae5',
+  bg: '#ffe100',
+  bgAlpha: 40,
+  size: 11,
+  font: 'inherit',
+} as const;
 
 export interface Diagram {
   parts: Part[];

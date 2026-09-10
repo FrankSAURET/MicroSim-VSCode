@@ -54,7 +54,7 @@ import { shieldSignalTarget } from './shield.mjs';
 import { internalWiringSvg, type PinPoint } from './internal-wiring.mjs';
 import { hasPinout, pinoutPoster, loadPinoutSvg } from './pinout.mjs';
 import { boardSize } from '../composants/pico-board.mjs';
-import { buildNets, nameEquipotentials, type Diagram, type Endpoint, type Part, type TextNote, type Wire } from './model.mjs';
+import { buildNets, nameEquipotentials, TEXT_NOTE_DEFAULTS, type Diagram, type Endpoint, type Part, type TextNote, type Wire } from './model.mjs';
 import { DEFAULT_WIRE_COLORS, DUPONT_COLORS, dupontHex, roundedWirePath, snapPoint, type XY } from './geometry.mjs';
 import { startAutoPan, type AutoPan } from './autopan.mjs';
 import { installerListeCrantee } from './liste-crantee.mjs';
@@ -179,13 +179,88 @@ const snapToGrid = (v: number): number => Math.round(v / GRID) * GRID;
 /** Étiquettes de texte libres — couleurs et gabarit choisis par Frank. Repris à
  *  l'identique par le CSS (`.text-note`) et par l'export SVG, qui ne partage pas
  *  la feuille de style : les deux doivent rendre la MÊME étiquette. */
-const TEXT_NOTE_INK = '#100ae5';
-const TEXT_NOTE_BG = 'rgba(255, 225, 0, 0.404)'; // #ffe10067
-const TEXT_NOTE_SIZE = 11.2; // 0.7rem à 16 px de base, comme le bandeau de nom
 const TEXT_NOTE_PAD = 4;
+/** Polices offertes à l'étiquette. La première suit l'atelier (`inherit`), les
+ *  autres sont des familles génériques : elles existent partout, ici comme dans
+ *  le SVG exporté, ce qu'un nom de police installé sur le seul poste de Frank ne
+ *  garantirait pas. */
+const TEXT_NOTE_FONTS: { value: string; label: string; css: string }[] = [
+  { value: 'inherit', label: 'Workshop font', css: 'inherit' },
+  { value: 'sans-serif', label: 'Sans serif', css: 'sans-serif' },
+  { value: 'serif', label: 'Serif', css: 'serif' },
+  { value: 'monospace', label: 'Monospace', css: 'monospace' },
+  { value: 'cursive', label: 'Handwriting', css: 'cursive' },
+];
+const TEXT_NOTE_SIZES = [8, 9, 10, 11, 12, 14, 16, 20, 24, 32, 48];
+/** Couleurs proposées pour l'encre et le fond (le nuancier des fils est fait
+ *  pour du câblage, celui-ci pour de l'écriture). */
+const TEXT_NOTE_INKS = ['#100ae5', '#000000', '#c00000', '#0a7d00', '#7a00c0', '#ffffff'];
+const TEXT_NOTE_BGS = ['#ffe100', '#ffffff', '#000000', '#b6e3ff', '#ffd0d0', '#d6ffd0'];
+/** Un canal de couleur (#rrggbb) rendu en pourcentage d'opacité (0-100). */
+const alphaHex = (pct: number): string =>
+  Math.round((Math.max(0, Math.min(100, pct)) * 255) / 100).toString(16).padStart(2, '0');
+/** Couleur CSS/SVG du fond d'une étiquette, transparence comprise. */
+const textNoteBg = (n: TextNote): string =>
+  `${n.bg ?? TEXT_NOTE_DEFAULTS.bg}${alphaHex(n.bgAlpha ?? TEXT_NOTE_DEFAULTS.bgAlpha)}`;
+const textNoteInk = (n: TextNote): string => n.color ?? TEXT_NOTE_DEFAULTS.color;
+/**
+ * Insère du texte brut à la position du curseur dans une zone éditable, sans
+ * `document.execCommand` (abandonné, et sans effet dans certaines webviews). Les
+ * sauts de ligne deviennent de vrais `<br>` : `innerText` les relit ensuite tels
+ * quels, ce qui garde le texte multi-lignes collé sur plusieurs lignes.
+ */
+const insertTextAtCaret = (host: HTMLElement, texte: string): void => {
+  if (!texte) return;
+  const sel = window.getSelection();
+  let range: Range;
+  if (sel && sel.rangeCount > 0 && host.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    range = sel.getRangeAt(0);
+    range.deleteContents();
+  } else {
+    // Curseur perdu (le focus a fait un aller-retour) : on colle à la fin.
+    range = document.createRange();
+    range.selectNodeContents(host);
+    range.collapse(false);
+  }
+  const frag = document.createDocumentFragment();
+  const lignes = texte.replace(/\r\n?/g, '\n').split('\n');
+  lignes.forEach((l, i) => {
+    if (i > 0) frag.appendChild(document.createElement('br'));
+    if (l) frag.appendChild(document.createTextNode(l));
+  });
+  const dernier = frag.lastChild;
+  range.insertNode(frag);
+  // Curseur APRÈS le texte collé : coller deux fois de suite doit empiler, pas
+  // réécrire au même endroit.
+  if (dernier) {
+    const after = document.createRange();
+    after.setStartAfter(dernier);
+    after.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(after);
+  }
+  host.dispatchEvent(new Event('input', { bubbles: true }));
+};
+/** Retient d'un objet venu d'un fichier les seuls champs de style VALIDES : une
+ *  couleur mal formée ou une taille absurde est ignorée (l'étiquette reprend la
+ *  valeur d'origine) plutôt que gravée telle quelle dans le dessin. */
+const sanitizeTextStyle = (n: Partial<TextNote>): Partial<TextNote> => {
+  const out: Partial<TextNote> = {};
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (typeof n.color === 'string' && hex.test(n.color)) out.color = n.color.toLowerCase();
+  if (typeof n.bg === 'string' && hex.test(n.bg)) out.bg = n.bg.toLowerCase();
+  const a = Number(n.bgAlpha);
+  if (Number.isFinite(a) && a >= 0 && a <= 100) out.bgAlpha = Math.round(a);
+  const s = Number(n.size);
+  if (Number.isFinite(s) && s >= 6 && s <= 96) out.size = Math.round(s);
+  if (typeof n.font === 'string' && TEXT_NOTE_FONTS.some((f) => f.value === n.font)) out.font = n.font;
+  return out;
+};
 /** Échappe un texte destiné à un nœud XML (export SVG). */
 const escapeXmlText = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Échappe une valeur d'attribut XML (une pile de polices porte des guillemets). */
+const escapeXmlAttr = (s: string): string => escapeXmlText(s).replace(/"/g, '&quot;');
 /**
  * Cale l'origine d'un composant sur UN axe pour que son DESSIN reste sur la
  * feuille. `v` = origine (`part.x` ou `part.y`), `d` = ce que le dessin dépasse
@@ -2316,6 +2391,7 @@ export class Editor {
         x: Number(n.x) || 0,
         y: Number(n.y) || 0,
         text: n.text,
+        ...sanitizeTextStyle(n),
       };
       (this.diagram.texts ??= []).push(note);
       this.renderText(note);
@@ -3346,6 +3422,20 @@ export class Editor {
     // le focus — les deux diffèrent quand un handler a redirigé l'événement.
     const target = (e.composedPath()[0] ?? e.target) as Element | null;
     const typing = isTextEntry(target) || isTextEntry(document.activeElement);
+    // Ctrl+V DANS une étiquette en saisie : dans la webview VS Code l'événement
+    // `paste` n'arrive pas toujours au contenteditable (le raccourci est capté
+    // en amont), et rien ne se collait. On lit alors le presse-papier système
+    // nous-mêmes. Le `paste` natif, s'il arrive quand même, a déjà collé et
+    // annulé l'événement clavier — d'où le contrôle sur `defaultPrevented`.
+    if (e.ctrlKey && !e.altKey && typing && e.key.toLowerCase() === 'v' && !this.locked) {
+      const corps = (document.activeElement as HTMLElement | null)?.closest?.('.text-note__body')
+        ?? (target as HTMLElement | null)?.closest?.('.text-note__body');
+      if (corps instanceof HTMLElement && corps.isContentEditable) {
+        e.preventDefault();
+        void this.pasteIntoTextNote(corps);
+        return;
+      }
+    }
     // Raccourcis Ctrl : annuler/refaire, copier (toujours), coller/dupliquer.
     if (e.ctrlKey && !typing) {
       const k = e.key.toLowerCase();
@@ -7033,6 +7123,62 @@ export class Editor {
     sel?.addRange(range);
   }
 
+  /** Colle le presse-papier système dans l'étiquette en saisie (filet quand
+   *  l'événement `paste` n'atteint pas le contenteditable). */
+  private async pasteIntoTextNote(corps: HTMLElement): Promise<void> {
+    const texte = await this.readSystemClipboard();
+    if (!texte) return;
+    // Un schéma copié depuis Kablix n'a rien à faire dans une étiquette : on
+    // colle du texte, pas la sérialisation d'un montage.
+    if (extractClipboard(texte)) return;
+    insertTextAtCaret(corps, texte);
+    const node = corps.closest('.text-note') as HTMLElement | null;
+    for (const [id, n] of this.textNodes) {
+      if (n === node) {
+        this.commitTextNode(id, corps);
+        break;
+      }
+    }
+  }
+
+  /** Pose sur le DOM d'une étiquette les couleurs, la taille et la police du
+   *  modèle. Le CSS ne porte plus que ce qui ne se règle pas (marges, coins). */
+  private applyTextStyle(note: TextNote, node: HTMLElement, body: HTMLElement): void {
+    node.style.background = textNoteBg(note);
+    body.style.color = textNoteInk(note);
+    // Taille et police NON réglées : rien n'est posé en ligne, le CSS garde la
+    // main (taille et police du bandeau de nom des composants). C'est ce qui
+    // permet à l'étiquette d'origine de suivre l'atelier au lieu d'être figée à
+    // une valeur en pixels.
+    body.style.fontSize = note.size === undefined ? '' : `${note.size}px`;
+    body.style.fontFamily = note.font === undefined || note.font === 'inherit' ? '' : note.font;
+  }
+
+  /** Change une propriété de style d'une étiquette (inspecteur). */
+  setTextStyle(id: string, patch: Partial<TextNote>): void {
+    const note = this.diagram.texts?.find((n) => n.id === id);
+    const node = this.textNodes.get(id);
+    if (!note || !node) return;
+    const propre = sanitizeTextStyle(patch);
+    if (Object.keys(propre).length === 0) return;
+    Object.assign(note, propre);
+    const body = node.querySelector('.text-note__body') as HTMLElement | null;
+    if (body) this.applyTextStyle(note, node, body);
+    this.notify();
+  }
+
+  /** Efface un réglage de style : l'étiquette revient à la valeur d'origine, et
+   *  le champ ne part plus dans le fichier. */
+  clearTextStyle(id: string, champ: 'color' | 'bg' | 'bgAlpha' | 'size' | 'font'): void {
+    const note = this.diagram.texts?.find((n) => n.id === id);
+    const node = this.textNodes.get(id);
+    if (!note || !node || note[champ] === undefined) return;
+    delete note[champ];
+    const body = node.querySelector('.text-note__body') as HTMLElement | null;
+    if (body) this.applyTextStyle(note, node, body);
+    this.notify();
+  }
+
   private renderText(note: TextNote): void {
     const node = document.createElement('div');
     node.className = 'text-note';
@@ -7043,12 +7189,19 @@ export class Editor {
     // La zone s'étend avec le texte : sa largeur est celle du contenu (CSS
     // `width: max-content`), sa hauteur suit les lignes. Rien à calculer ici.
     body.textContent = note.text;
+    this.applyTextStyle(note, node, body);
     // Le texte est saisi en clair : ce que colle l'utilisateur ne doit pas
     // amener de balises (contenteditable colle du HTML par défaut).
+    // Coller : le texte est saisi EN CLAIR, ce que colle l'utilisateur ne doit
+    // pas amener de balises (contenteditable colle du HTML par défaut). Deux
+    // chemins, parce que Ctrl+V n'arrive pas toujours ici sous forme d'événement
+    // `paste` (la webview VS Code intercepte le raccourci) : cet écouteur quand
+    // il arrive, et la lecture directe du presse-papier depuis `onKeyDown`.
     body.addEventListener('paste', (e: ClipboardEvent) => {
       e.preventDefault();
-      const brut = e.clipboardData?.getData('text/plain') ?? '';
-      document.execCommand('insertText', false, brut);
+      e.stopPropagation();
+      insertTextAtCaret(body, e.clipboardData?.getData('text/plain') ?? '');
+      this.positionTextCarets(note.id);
     });
     body.addEventListener('input', () => this.positionTextCarets(note.id));
     body.addEventListener('blur', () => {
@@ -7143,6 +7296,91 @@ export class Editor {
     hint.className = 'inspector__hint';
     hint.textContent = t('Free text label. Drag it to move it; with the text mode (T) on, click it to edit it.');
     this.inspector.appendChild(hint);
+
+    const label = (texte: string): void => {
+      const el = document.createElement('label');
+      el.className = 'inspector__label';
+      el.textContent = texte;
+      this.inspector.appendChild(el);
+    };
+    // Nuancier : mêmes pastilles que la couleur des fils, mais servi ici par des
+    // couleurs d'écriture. La sélection est relue du modèle à chaque rendu.
+    const nuancier = (choix: string[], courant: string, set: (c: string) => void): void => {
+      const box = document.createElement('div');
+      box.className = 'inspector__swatches';
+      for (const c of choix) {
+        const sw = document.createElement('button');
+        sw.className = 'inspector__swatch' + (c === courant ? ' inspector__swatch--active' : '');
+        sw.style.background = c;
+        sw.title = c;
+        sw.addEventListener('click', () => {
+          set(c);
+          this.renderInspector();
+        });
+        box.appendChild(sw);
+      }
+      this.inspector.appendChild(box);
+    };
+
+    label(t('Text color'));
+    nuancier(TEXT_NOTE_INKS, textNoteInk(note), (c) => this.setTextStyle(id, { color: c }));
+
+    label(t('Background color'));
+    nuancier(TEXT_NOTE_BGS, note.bg ?? TEXT_NOTE_DEFAULTS.bg, (c) => this.setTextStyle(id, { bg: c }));
+
+    // Transparence du fond : 0 % = fond invisible (le texte seul reste), 100 % =
+    // fond plein. Le curseur montre la valeur pendant qu'on le tire.
+    label(t('Background opacity'));
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.className = 'inspector__control inspector__range';
+    range.min = '0';
+    range.max = '100';
+    range.step = '5';
+    range.value = String(note.bgAlpha ?? TEXT_NOTE_DEFAULTS.bgAlpha);
+    range.title = `${range.value} %`;
+    range.addEventListener('input', () => {
+      range.title = `${range.value} %`;
+      this.setTextStyle(id, { bgAlpha: Number(range.value) });
+    });
+    this.inspector.appendChild(range);
+
+    // Taille : « atelier » (valeur d'origine, celle du bandeau de nom) ou une
+    // taille en pixels. Tant que rien n'est choisi, l'étiquette suit l'atelier.
+    label(t('Text size'));
+    const taille = document.createElement('select');
+    taille.className = 'inspector__control';
+    for (const s of [0, ...TEXT_NOTE_SIZES]) {
+      const o = document.createElement('option');
+      o.value = String(s);
+      o.textContent = s === 0 ? t('Workshop size') : `${s} px`;
+      if (s === (note.size ?? 0)) o.selected = true;
+      taille.appendChild(o);
+    }
+    taille.addEventListener('change', () => {
+      const v = Number(taille.value);
+      if (v === 0) this.clearTextStyle(id, 'size');
+      else this.setTextStyle(id, { size: v });
+    });
+    this.inspector.appendChild(taille);
+
+    label(t('Font'));
+    const police = document.createElement('select');
+    police.className = 'inspector__control';
+    for (const f of TEXT_NOTE_FONTS) {
+      const o = document.createElement('option');
+      o.value = f.value;
+      o.textContent = t(f.label);
+      o.style.fontFamily = f.css;
+      if (f.value === (note.font ?? 'inherit')) o.selected = true;
+      police.appendChild(o);
+    }
+    police.addEventListener('change', () => {
+      if (police.value === 'inherit') this.clearTextStyle(id, 'font');
+      else this.setTextStyle(id, { font: police.value });
+    });
+    this.inspector.appendChild(police);
+
     this.appendDeleteButton(t('Delete this label'), () => this.removeText(id));
   }
 
@@ -7410,11 +7648,21 @@ export class Editor {
             `${escapeXmlText(l)}</tspan>`
           )
           .join('');
+        // Police, taille et couleurs viennent de l'étiquette : le SVG exporté
+        // rend la MÊME chose que l'écran, réglages compris. Non réglées, elles
+        // sont LUES SUR LE RENDU — le CSS de l'atelier fait alors foi, et
+        // l'export ne peut pas s'en écarter. `inherit` n'a pas de sens hors
+        // document, on retombe sur sans-serif.
+        const corpsNode = node.querySelector('.text-note__body') as HTMLElement | null;
+        const csNote = corpsNode ? getComputedStyle(corpsNode) : null;
+        const famille = note.font ?? (csNote?.fontFamily || 'sans-serif');
+        const corps = note.size ?? (parseFloat(csNote?.fontSize ?? '') || TEXT_NOTE_DEFAULTS.size);
         notes.push(
           `<g><rect x="${note.x}" y="${note.y}" width="${w}" height="${h}" rx="4" ` +
-            `fill="${TEXT_NOTE_BG}"/>` +
-            `<text font-family="sans-serif" font-size="${TEXT_NOTE_SIZE}" ` +
-            `fill="${TEXT_NOTE_INK}" xml:space="preserve">${tspans}</text></g>`
+            `fill="${textNoteBg(note)}"/>` +
+            `<text font-family="${escapeXmlAttr(famille === 'inherit' ? 'sans-serif' : famille)}" ` +
+            `font-size="${corps}" ` +
+            `fill="${textNoteInk(note)}" xml:space="preserve">${tspans}</text></g>`
         );
       }
     }
